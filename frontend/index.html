@@ -10,6 +10,7 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="seal">华</span><div><strong>华容道状态图</strong><small>Lean 4 verified transition system</small></div></div>
+    <nav class="mode-switch" aria-label="探索模式"><button id="mode-classic" class="active">经典华容道</button><button id="mode-lab">关卡实验室</button></nav>
     <div class="metrics">
       <span><b id="state-count">--</b> 状态</span><span><b id="edge-count">--</b> 转换</span><span><b id="depth-count">--</b> 层</span>
     </div>
@@ -21,7 +22,7 @@
     </div>
   </header>
 
-  <main class="workspace">
+  <main id="classic-workspace" class="workspace">
     <aside class="game-panel">
       <div class="panel-heading"><div><span class="eyebrow">CURRENT STATE</span><h1>横刀立马</h1></div><span id="status-badge" class="badge">探索中</span></div>
       <div id="board" class="board keyboard-surface" tabindex="0" aria-label="华容道棋盘。WASD选择棋子，方向键移动"></div>
@@ -94,6 +95,47 @@
     </section>
   </main>
 
+  <main id="laboratory" class="laboratory" hidden>
+    <aside class="lab-editor">
+      <header><span class="eyebrow">GENERIC SLIDING PUZZLE</span><h1>关卡规格</h1><p>编号矩形块 · 单格滑动 · 指定位置目标</p></header>
+      <section class="lab-board-settings"><h2>棋盘</h2><label>宽度<input id="lab-width" type="number" min="1" max="16" value="3"></label><label>高度<input id="lab-height" type="number" min="1" max="16" value="2"></label></section>
+      <section class="lab-presets"><button data-lab-preset="tiny" class="active">3×2 入门</button><button data-lab-preset="gate">4×4 让路</button><button data-lab-preset="classic">经典横刀立马</button><button data-lab-preset="custom">清空</button></section>
+      <section class="lab-blocks"><div class="lab-section-heading"><h2>编号木块</h2><button id="lab-add-piece" title="添加木块">＋</button></div><div class="lab-table-head"><span>编号</span><span>尺寸</span><span>初始 x,y</span><span>目标约束 / x,y</span><span></span></div><div id="lab-piece-list"></div></section>
+      <section class="lab-search-method"><h2>搜索方法</h2><div><button data-lab-strategy="astar" class="active">A* 快速求解</button><button data-lab-strategy="bfs">BFS 图枚举</button></div><p id="lab-strategy-note">启发式搜索找到目标后停止；返回可验证的搜索子图。</p></section><section class="lab-limits"><h2>搜索上限</h2><label>最大状态<input id="lab-max-states" type="number" min="1" max="2000000" step="1" value="100000"></label><label>最大深度<input id="lab-max-depth" type="number" min="0" max="10000" step="1" value="500"></label><label>等待秒数<input id="lab-timeout-seconds" type="number" min="1" max="600" step="1" value="120"></label></section>
+      <div class="lab-editor-actions"><button id="lab-validate">验证关卡</button><button id="lab-solve" class="primary">Lean A* 求解</button></div>
+    </aside>
+    <section class="lab-main">
+      <div class="lab-heading"><div><span class="eyebrow">PUZZLE LABORATORY</span><h1>通用有限滑块探索</h1></div><div id="lab-status" class="lab-status idle"><i></i><span>等待验证</span></div></div>
+      <div class="lab-boards">
+        <article><header><div><small>INITIAL STATE · DRAG TO EDIT</small><h2>给定初态</h2></div><code id="lab-initial-type">ValidState spec initial</code></header><div id="lab-initial-board" class="lab-board editable resizable-board" title="拖动编号块；拖动右下角外框手柄改变棋盘宽高"></div></article>
+        <div class="lab-board-arrow">→</div>
+        <article><header><div><small>GOAL CONSTRAINTS · DRAG TO EDIT</small><h2>目标约束</h2></div><code id="lab-goal-type">goalMatches spec target</code></header><div id="lab-goal-board" class="lab-board goal-board editable resizable-board" title="勾选目标约束后拖动；右下角手柄改变棋盘宽高"></div></article>
+      </div>
+      <section class="lab-proof-chain">
+        <div id="lab-proof-spec"><b>1</b><span>关卡成立</span><code>wellFormed spec = true</code></div><i>→</i>
+        <div id="lab-proof-search"><b>2</b><span>搜索见证</span><code>actions : List Action</code></div><i>→</i>
+        <div id="lab-proof-check"><b>3</b><span>独立重放</span><code>checkSolution = true</code></div><i>→</i>
+        <div id="lab-proof-exists"><b>4</b><span>存在性证明</span><code>Nonempty (Solution spec)</code></div>
+      </section>
+      <section id="lab-result" class="lab-result empty">
+        <div class="lab-empty"><strong>定义一个关卡，然后交给 Lean</strong><span>验证关卡规格、枚举状态空间、重放最短路径并构造存在性证明。</span></div>
+        <div class="lab-result-content" hidden>
+          <div class="lab-stats"><div><span>访问状态</span><strong id="lab-visited">0</strong></div><div><span>展开状态</span><strong id="lab-expanded">0</strong></div><div><span>合法转换</span><strong id="lab-generated">0</strong></div><div><span>最短步数</span><strong id="lab-length">—</strong></div><div><span>难度</span><strong id="lab-difficulty">—</strong></div><div><span>算法</span><strong id="lab-algorithm">—</strong></div></div>
+          <div class="lab-solution-grid"><article class="lab-play-panel"><header><div><h2>手动探索 / 解路径</h2><small id="lab-play-mode">当前图节点</small></div><div><button id="lab-prev" title="撤回一步">↶</button><span id="lab-step-label">节点 #0</span><button id="lab-next" title="沿求解路径前进一步">→</button></div></header><div id="lab-play-board" class="lab-board play-board interactive" tabindex="0"></div><div class="lab-play-commands"><button id="lab-play-reset">复位</button><button id="lab-play-hint">提示一步</button><div class="lab-direction-pad"><button data-lab-move="up">↑</button><button data-lab-move="left">←</button><button data-lab-move="down">↓</button><button data-lab-move="right">→</button></div></div></article><article class="lab-proof-output"><header><h2>Lean 证明见证</h2><span id="lab-proof-badge">未验证</span></header><pre><code id="lab-proof-code"></code></pre></article></div>
+          <div id="lab-actions" class="lab-actions"></div>
+          <section class="lab-graph-explorer">
+            <header><div><small>LEAN STATE GRAPH · THREE.JS</small><h2>自定义关卡状态图</h2></div><div class="lab-graph-controls"><button data-lab-graph-mode="overview" class="active">全览模式</button><button data-lab-graph-mode="explore">探索模式</button><button id="lab-graph-locate" title="定位当前节点">⌖</button><button id="lab-graph-home" title="回到初态">⌂</button></div></header>
+            <div class="lab-graph-route"><button id="lab-route-start"><span>固定起点</span><b id="lab-route-start-id">#0</b></button><i>→</i><button id="lab-route-end" class="active"><span>选择终点</span><b id="lab-route-end-id">未选择</b></button><button id="lab-route-play" title="沿 Lean 合法边播放路径" disabled>▶</button></div>
+            <div class="lab-graph-meta"><span>当前节点 <b id="lab-graph-node">#0</b></span><span>距离 <b id="lab-graph-distance">0</b></span><span>合法后继 <b id="lab-graph-degree">0</b></span><span id="lab-graph-complete">等待图数据</span></div>
+            <div class="lab-graph-stage"><canvas id="lab-graph-canvas" tabindex="0" aria-label="三维自定义关卡状态图；拖动旋转，滚轮缩放，点击选择路径端点"></canvas><div id="lab-graph-tip" class="lab-graph-tip"></div><div class="lab-graph-legend"><span><i class="initial"></i>起点</span><span><i class="current"></i>当前</span><span><i class="goal"></i>目标</span><span><i class="route"></i>合法路径</span></div><div class="lab-graph-zoom"><button id="lab-graph-zoom-in">＋</button><button id="lab-graph-zoom-out">−</button></div></div>
+            <footer><span id="lab-graph-summary">等待 Lean 状态图</span><strong id="lab-graph-zoom">100%</strong></footer>
+            <div class="lab-graph-proof"><code id="lab-graph-claim">GraphPath spec graph state0 state0</code><span id="lab-graph-proof-text">GraphPath.nil state0 ⇒ Reachable spec state0 state0</span></div>
+          </section>
+        </div>
+      </section>
+    </section>
+  </main>
+
   <dialog id="proof-dialog" class="info-dialog">
     <div class="dialog-heading"><div><span class="dialog-mark">L4</span><div><small>FORMAL VERIFICATION</small><h2>Lean 4 在本项目中负责什么</h2></div></div><button id="proof-close" class="dialog-close" title="关闭">×</button></div>
     <div class="verification-flow">
@@ -118,5 +160,6 @@
   </dialog>
 
   <script type="module" src="app.js"></script>
+  <script type="module" src="laboratory.js"></script>
 </body>
 </html>

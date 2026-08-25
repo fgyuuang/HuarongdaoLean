@@ -1,13 +1,14 @@
 {
   "name": "huarongdao-lean-visualizer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "export": "lake exe export-graph frontend/graph.json",
     "layout": "node scripts/import-reference-layout.mjs",
     "serve": "node scripts/serve.mjs",
-    "check": "lake build && node --check frontend/app.js"
+    "check:generic": "node scripts/check-generic.mjs",
+    "check": "lake build && node --check frontend/app.js && node --check frontend/laboratory.js && node --check scripts/serve.mjs && node scripts/check-generic.mjs"
   },
   "dependencies": {
     "three": "^0.179.1"

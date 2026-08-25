@@ -8,3 +8,4 @@ import Huarongdao.Symmetry
 import Huarongdao.Search
 import Huarongdao.Minimality
 import Huarongdao.ProofGame
+import Huarongdao.Generic

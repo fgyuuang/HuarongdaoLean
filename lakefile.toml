@@ -1,6 +1,6 @@
 name = "Huarongdao"
 version = "0.1.0"
-defaultTargets = ["huarongdao", "export-graph"]
+defaultTargets = ["huarongdao", "export-graph", "solve-puzzle"]
 
 [[lean_lib]]
 name = "Huarongdao"
@@ -16,3 +16,7 @@ root = "ExportMain"
 [[lean_exe]]
 name = "check-certificate"
 root = "CertMain"
+
+[[lean_exe]]
+name = "solve-puzzle"
+root = "GenericMain"
