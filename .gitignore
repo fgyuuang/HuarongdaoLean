@@ -1,0 +1,17 @@
+.lake/
+build/
+# Lean/Lake build output
+frontend/graph.json
+.server*.log
+
+# Local/editor/OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Generated screenshots and temporary exports
+.edge-*/
+.rendered.html
+node_modules/

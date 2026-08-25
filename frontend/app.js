@@ -1,0 +1,866 @@
+import * as THREE from './vendor/three.module.min.js';
+import { OrbitControls } from './vendor/OrbitControls.js';
+
+const pieces = [
+  { label: '曹操', cls: 'cao', w: 2, h: 2 },
+  { label: '关羽', cls: 'guan', w: 2, h: 1 },
+  { label: '张飞', cls: 'vertical', w: 1, h: 2 },
+  { label: '赵云', cls: 'vertical', w: 1, h: 2 },
+  { label: '马超', cls: 'vertical', w: 1, h: 2 },
+  { label: '黄忠', cls: 'vertical', w: 1, h: 2 },
+  { label: '兵一', cls: 'soldier', w: 1, h: 1 },
+  { label: '兵二', cls: 'soldier', w: 1, h: 1 },
+  { label: '兵三', cls: 'soldier', w: 1, h: 1 },
+  { label: '兵四', cls: 'soldier', w: 1, h: 1 }
+];
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value random-walk-toggle random-walk-status proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length'.split(' ');
+const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+
+let graphData, layoutData, outgoing, shortestGoalDistance = 0;
+let current = 0, selected = null, history = [0], historyKinds = [], hintPath = [];
+let playerMoves = 0, navigationUsed = false, shownGoal = null;
+let graphMode = 'overview', selectionMode = 'end', routeStart = 0, routeEnd = null, routePath = [];
+let routeStartPinned = false;
+let animationToken = 0, isAnimating = false, suppressCompletion = false;
+const exploredNodes = new Set([0]);
+const exploredEdges = new Map();
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+const renderer = new THREE.WebGLRenderer({ canvas: ui.graph, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.minDistance = 1;
+controls.maxDistance = 600;
+const graphGroup = new THREE.Group();
+const overviewGroup = new THREE.Group();
+const exploreGroup = new THREE.Group();
+graphGroup.add(overviewGroup, exploreGroup);
+scene.add(graphGroup);
+const raycaster = new THREE.Raycaster();
+raycaster.params.Points.threshold = 0.8;
+const pointer = new THREE.Vector2();
+let pointCloud = null, overviewPoints = null, overviewEdges = null, explorePoints = null, exploreEdges = null;
+let pathLines = null, historyLines = null, currentMarker = null, startMarker = null, endMarker = null, edgePairs = [];
+let graphPositions = null, graphCenter = new THREE.Vector3(), graphSize = 100, exploreNodeIds = [];
+let pointerDown = null;
+let keyboardFocus = 'board';
+let graphKeyboardIndex = 0;
+let randomWalkTimer = null;
+let randomWalkEnabled = false;
+// Explore mode uses a small, incremental force simulation. Positions are kept
+// between rebuilds so adding frontier nodes does not make the graph jump.
+const exploreForce = {
+  positions: new Map(), velocities: new Map(), nodes: [], edges: [], running: false,
+  lastTime: 0, temperature: 0.9,
+  params: { rest: 2.15, spring: 0.12, repulsion: 11, plane: 0.32, nodeSize: 7, damping: 0.86, lineWidth: 1.5 }
+};
+const defaultForceParams = { ...exploreForce.params };
+
+function isDarkTheme() { return document.documentElement.classList.contains('dark'); }
+function updateSceneTheme() {
+  const dark = isDarkTheme();
+  scene.background = new THREE.Color(dark ? 0x1b1f1c : 0xf2f3ef);
+  if (overviewPoints) overviewPoints.material.color.set(dark ? 0xaab3ae : 0x59635e);
+  if (overviewEdges) {
+    overviewEdges.material.color.set(dark ? 0x76807b : 0x7a857f);
+    overviewEdges.material.opacity = dark ? 0.16 : 0.28;
+  }
+  if (graphData && graphPositions) rebuildExploreGraph();
+  if (currentMarker) updateGraphState();
+}
+updateSceneTheme();
+
+async function loadGraph() {
+  const [graphResponse, layoutResponse] = await Promise.all([fetch('graph.json'), fetch('layout.json')]);
+  if (!graphResponse.ok) throw new Error('graph.json unavailable');
+  if (!layoutResponse.ok) throw new Error('layout.json unavailable');
+  graphData = await graphResponse.json();
+  layoutData = await layoutResponse.json();
+  if (layoutData.coordinates.length !== graphData.states.length) throw new Error('Layout/state count mismatch');
+  outgoing = Array.from({ length: graphData.states.length }, () => []);
+  for (const edge of graphData.edges) outgoing[edge.source].push(edge);
+  ui['state-count'].textContent = graphData.meta.stateCount.toLocaleString();
+  ui['edge-count'].textContent = graphData.meta.edgeCount.toLocaleString();
+  ui['depth-count'].textContent = Math.max(...graphData.states.map(state => state.distance));
+  ui['explored-count'].textContent = graphData.states.length.toLocaleString();
+  shortestGoalDistance = Math.min(...graphData.states.filter(state => state.goal).map(state => state.distance));
+  buildFullGraph();
+  syncRouteControls();
+  ui.loading.classList.add('hidden');
+  renderState(0, false);
+  requestAnimationFrame(fitGraph);
+}
+
+function renderState(id, pushHistory = true, moveText = '', transitionKind = 'graph') {
+  if (!graphData?.states[id]) return;
+  const previous = current;
+  const changed = previous !== id;
+  if (changed) recordExploration(previous, id);
+  current = id;
+  if (changed && pushHistory) {
+    if (history.at(-1) !== id) {
+      history.push(id);
+      historyKinds.push(transitionKind);
+      if (transitionKind === 'move') playerMoves += 1;
+      else navigationUsed = true;
+    }
+    if (!isAnimating) hintPath = [];
+  }
+  const state = graphData.states[id];
+  ui.board.replaceChildren();
+  state.positions.forEach(([x, y], index) => {
+    const spec = pieces[index];
+    const wrap = document.createElement('div');
+    wrap.className = 'piece ' + spec.cls + (selected === index ? ' selected' : '');
+    Object.assign(wrap.style, { left: x * 25 + '%', top: y * 20 + '%', width: spec.w * 25 + '%', height: spec.h * 20 + '%' });
+    const button = document.createElement('button');
+    button.textContent = spec.label;
+    button.title = index < 2 ? spec.label : spec.cls === 'vertical' ? '竖将' : '小兵';
+    button.onclick = () => { selected = index; renderState(current, false); ui.selection.textContent = '已选择 ' + spec.label; };
+    wrap.append(button); ui.board.append(wrap);
+  });
+  ui['node-id'].textContent = '#' + id;
+  ui.distance.textContent = state.distance + ' 步';
+  ui.degree.textContent = outgoing[id].length;
+  ui['last-move'].textContent = moveText || (state.goal ? '曹操已到达出口' : '三维探索图已同步');
+  ui['status-badge'].textContent = state.goal ? '已完成' : '探索中';
+  ui['status-badge'].classList.toggle('goal', state.goal);
+  ui['lean-valid'].innerHTML = '<i></i>true';
+  ui['lean-goal'].textContent = String(state.goal);
+  const latestKind = changed && pushHistory ? transitionKind : historyKinds.at(-1);
+  ui['lean-transition'].textContent = latestKind === 'move' || latestKind === 'route' ? 'tryMove = some' : latestKind === 'graph' ? 'BFS reachable' : 'initial';
+  if (graphMode === 'explore' && changed) rebuildExploreGraph();
+  updateGraphState();
+  updateProofTrace();
+  if (!state.goal) shownGoal = null;
+  if (!suppressCompletion && state.goal && shownGoal !== id) { shownGoal = id; showCompletion(state); }
+}
+
+function stopRandomWalk() {
+  if (randomWalkTimer) clearInterval(randomWalkTimer);
+  randomWalkTimer = null; randomWalkEnabled = false;
+  if (ui['random-walk-toggle']) ui['random-walk-toggle'].checked = false;
+  if (ui['random-walk-status']) ui['random-walk-status'].textContent = '关闭';
+}
+function randomWalkStep() {
+  const candidates = outgoing[current] || [];
+  if (!candidates.length) return;
+  const previous = history.length > 1 ? history.at(-2) : null;
+  const recent = new Set(history.slice(-7));
+  const preferred = selected == null ? candidates : candidates.filter(edge => edge.piece === selected);
+  const source = preferred.length ? preferred : candidates;
+  // Prefer unexplored local states, then avoid the immediate reverse edge.
+  const fresh = source.filter(edge => !recent.has(edge.target));
+  const withoutBacktrack = source.filter(edge => edge.target !== previous);
+  const pool = fresh.length ? fresh : (withoutBacktrack.length ? withoutBacktrack : source);
+  const edge = pool[Math.floor(Math.random() * pool.length)];
+  renderState(edge.target, true, '随机游走：' + pieces[edge.piece].label + '向' + edge.direction + ' · #' + edge.target, 'move');
+}
+function setRandomWalk(enabled) {
+  if (!enabled) { stopRandomWalk(); return; }
+  stopRandomWalk(); randomWalkEnabled = true;
+  if (ui['random-walk-toggle']) ui['random-walk-toggle'].checked = true;
+  if (ui['random-walk-status']) ui['random-walk-status'].textContent = '开启';
+  randomWalkTimer = setInterval(randomWalkStep, 420);
+}
+function move(direction) {
+  if (randomWalkEnabled) stopRandomWalk();
+  cancelAnimation();
+  if (selected == null) { ui.selection.textContent = '请先选择棋子'; return; }
+  const edge = outgoing[current].find(item => item.piece === selected && item.direction === direction);
+  if (!edge) { ui['last-move'].textContent = pieces[selected].label + '不能向' + direction + '移动'; return; }
+  renderState(edge.target, true, pieces[selected].label + '向' + direction + ' · Lean 合法边 #' + edge.target, 'move');
+}
+
+document.querySelectorAll('[data-dir]').forEach(button => button.onclick = () => move(button.dataset.dir));
+function focusKeyboardSurface(surface) {
+  keyboardFocus = surface;
+  const element = surface === 'board' ? ui.board : ui.graph;
+  element?.classList.toggle('keyboard-active', true);
+  document.querySelectorAll('.keyboard-surface').forEach(node => { if (node !== element) node.classList.remove('keyboard-active'); });
+}
+function boardPieceCenter(index) {
+  const state = graphData.states[current], position = state.positions[index], spec = pieces[index];
+  return { x: position[0] + spec.w / 2, y: position[1] + spec.h / 2 };
+}
+function selectPieceRelative(direction) {
+  if (selected == null) selected = 0;
+  const from = boardPieceCenter(selected);
+  const candidates = pieces.map((_, index) => index).filter(index => index !== selected).map(index => {
+    const point = boardPieceCenter(index), dx = point.x - from.x, dy = point.y - from.y;
+    const forward = direction === '上' ? -dy : direction === '下' ? dy : direction === '左' ? -dx : dx;
+    const lateral = direction === '上' || direction === '下' ? Math.abs(dx) : Math.abs(dy);
+    return { index, forward, lateral, distance: Math.hypot(dx, dy) };
+  }).filter(item => item.forward > 0.05).sort((a, b) => a.lateral - b.lateral || a.forward - b.forward || a.distance - b.distance);
+  if (candidates.length) selected = candidates[0].index;
+  renderState(current, false);
+  ui.selection.textContent = '相对位置已选择 ' + pieces[selected].label + '（WASD 按棋盘方向选择）';
+}
+function graphNeighborsForKeyboard() {
+  const candidates = [...new Map((outgoing[current] || []).map(edge => [edge.target, edge])).values()];
+  return candidates;
+}
+function navigateGraphByKeyboard(direction) {
+  const candidates = graphNeighborsForKeyboard();
+  if (!candidates.length) { ui['last-move'].textContent = '当前节点没有可前进的合法边'; return; }
+  const directional = candidates.filter(edge => edge.direction === direction);
+  const pool = directional.length ? directional : candidates;
+  const edge = pool[graphKeyboardIndex % pool.length];
+  graphKeyboardIndex = (graphKeyboardIndex + 1) % pool.length;
+  renderState(edge.target, true, '状态图键盘前进：' + direction + ' · #' + current + ' → #' + edge.target, 'graph');
+}
+function selectExploredNodeByKeyboard(step) {
+  const ids = [...exploredNodes].filter(id => id !== current);
+  if (!ids.length) { ui['last-move'].textContent = '当前还没有其他已开拓节点'; return; }
+  graphKeyboardIndex = (graphKeyboardIndex + step + ids.length) % ids.length;
+  const id = ids[graphKeyboardIndex];
+  routeStart = current; routeEnd = id; routePath = shortestPath(current, id); syncRouteControls(); updateGraphState();
+  ui['last-move'].textContent = 'W/S 选择已开拓节点：#' + id + '（按 Enter 前往）';
+}
+document.addEventListener('keydown', event => {
+  if (event.target.matches('input,textarea,select') || document.querySelector('dialog[open]')) return;
+  const map = { ArrowUp: '上', ArrowDown: '下', ArrowLeft: '左', ArrowRight: '右' };
+  if (event.key === 'Tab') return;
+  if (event.key.toLowerCase() === 'r') { event.preventDefault(); randomWalkStep(); return; }
+  if (event.key.toLowerCase() === 't') { event.preventDefault(); setRandomWalk(!randomWalkEnabled); return; }
+  if (keyboardFocus === 'board') {
+    if (map[event.key]) { event.preventDefault(); move(map[event.key]); }
+    else if (event.key.toLowerCase() === 'w') { event.preventDefault(); selectPieceRelative('上'); }
+    else if (event.key.toLowerCase() === 's') { event.preventDefault(); selectPieceRelative('下'); }
+    else if (event.key.toLowerCase() === 'a') { event.preventDefault(); selectPieceRelative('左'); }
+    else if (event.key.toLowerCase() === 'd') { event.preventDefault(); selectPieceRelative('右'); }
+    return;
+  }
+  if (map[event.key]) { event.preventDefault(); navigateGraphByKeyboard(map[event.key]); }
+  else if (['w', 'a'].includes(event.key.toLowerCase())) { event.preventDefault(); selectExploredNodeByKeyboard(-1); }
+  else if (['s', 'd'].includes(event.key.toLowerCase())) { event.preventDefault(); selectExploredNodeByKeyboard(1); }
+  else if (event.key === 'Enter' && routeEnd !== null && routePath.length > 1) { event.preventDefault(); animateSelectedRoute(); }
+});
+ui.board?.addEventListener('focus', () => focusKeyboardSurface('board'));
+ui.graph?.addEventListener('focus', () => focusKeyboardSurface('graph'));
+ui.board?.addEventListener('pointerdown', () => focusKeyboardSurface('board'));
+ui.graph?.addEventListener('pointerdown', () => focusKeyboardSurface('graph'));
+document.getElementById('undo').onclick = () => {
+  cancelAnimation();
+  if (history.length > 1) {
+    history.pop();
+    const removedKind = historyKinds.pop();
+    if (removedKind === 'move') playerMoves = Math.max(0, playerMoves - 1);
+    navigationUsed = historyKinds.some(kind => kind !== 'move');
+    renderState(history.at(-1), false, '已撤回，探索图保留已发现节点');
+  }
+};
+document.getElementById('reset').onclick = () => {
+  cancelAnimation();
+  stopRandomWalk();
+  history = [0]; historyKinds = []; hintPath = []; selected = null; current = 0;
+  playerMoves = 0; navigationUsed = false; shownGoal = null;
+  routeStart = 0; routeEnd = null; routePath = []; routeStartPinned = false;
+  exploreForce.positions.clear(); exploreForce.velocities.clear();
+  exploredNodes.clear(); exploredNodes.add(0); exploredEdges.clear();
+  syncRouteControls(); rebuildExploreGraph();
+  renderState(0, false, '已回到经典初始状态'); requestAnimationFrame(fitGraph);
+};
+document.getElementById('hint').onclick = findGoalPath;
+document.getElementById('go-goal').onclick = () => {
+  stopRandomWalk();
+  findGoalPath();
+  if (routePath.length > 1) animateSelectedRoute();
+};
+
+function findGoalPath() {
+  const parent = new Int32Array(graphData.states.length); parent.fill(-2); parent[current] = -1;
+  const queue = new Int32Array(graphData.states.length); let head = 0, tail = 1; queue[0] = current; let goal = -1;
+  while (head < tail) {
+    const node = queue[head++];
+    if (graphData.states[node].goal) { goal = node; break; }
+    for (const edge of outgoing[node]) if (parent[edge.target] === -2) { parent[edge.target] = node; queue[tail++] = edge.target; }
+  }
+  if (goal < 0) { ui['last-move'].textContent = '未找到目标状态'; return; }
+  hintPath = []; for (let at = goal; at !== -1; at = parent[at]) hintPath.push(at); hintPath.reverse();
+  routeStart = current; routeEnd = goal; routePath = hintPath.slice(); syncRouteControls(); updateGraphState();
+  const next = hintPath[1];
+  if (next == null) ui['last-move'].textContent = '当前已经是目标状态';
+  else {
+    const edge = outgoing[current].find(item => item.target === next);
+    ui['last-move'].textContent = '已规划到最近终点：' + (hintPath.length - 1) + ' 步；点击“导航到终点”或按 Enter 播放';
+  }
+}
+
+function edgeKey(a, b) { return Math.min(a, b) + ':' + Math.max(a, b); }
+
+function makePointTexture() {
+  const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff'; context.beginPath(); context.arc(16, 16, 13, 0, Math.PI * 2); context.fill();
+  return new THREE.CanvasTexture(canvas);
+}
+const pointTexture = makePointTexture();
+
+function buildFullGraph() {
+  const count = graphData.states.length;
+  const raw = layoutData.coordinates;
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (const coordinate of raw) for (let axis = 0; axis < 3; axis += 1) {
+    min[axis] = Math.min(min[axis], coordinate[axis]); max[axis] = Math.max(max[axis], coordinate[axis]);
+  }
+  const center = min.map((value, axis) => (value + max[axis]) / 2);
+  const scale = 110 / Math.max(...max.map((value, axis) => value - min[axis]));
+  graphPositions = new Float32Array(count * 3);
+  for (let id = 0; id < count; id += 1) for (let axis = 0; axis < 3; axis += 1) graphPositions[id * 3 + axis] = (raw[id][axis] - center[axis]) * scale;
+
+  const pointGeometry = new THREE.BufferGeometry();
+  pointGeometry.setAttribute('position', new THREE.BufferAttribute(graphPositions, 3));
+  overviewPoints = new THREE.Points(pointGeometry, new THREE.PointsMaterial({ color: 0xaab3ae, size: 1.5, sizeAttenuation: false, map: pointTexture, alphaTest: 0.45, transparent: true, opacity: 0.62, depthWrite: false }));
+  overviewPoints.userData.nodeIds = null;
+  overviewGroup.add(overviewPoints);
+
+  const seen = new Set(); edgePairs = [];
+  for (const edge of graphData.edges) {
+    const key = edgeKey(edge.source, edge.target);
+    if (seen.has(key)) continue;
+    seen.add(key); edgePairs.push([edge.source, edge.target]);
+  }
+  const edgePositions = new Float32Array(edgePairs.length * 6);
+  edgePairs.forEach(([source, target], index) => {
+    edgePositions.set(graphPositions.subarray(source * 3, source * 3 + 3), index * 6);
+    edgePositions.set(graphPositions.subarray(target * 3, target * 3 + 3), index * 6 + 3);
+  });
+  const edgeGeometry = new THREE.BufferGeometry();
+  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+  overviewEdges = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({ color: 0x76807b, transparent: true, opacity: 0.16, depthWrite: false }));
+  overviewGroup.add(overviewEdges);
+
+  currentMarker = makeRingMarker('#9f2d2d', '#ffffff', 22);
+  startMarker = makeRingMarker('#d6a342', '#6f531f', 16);
+  endMarker = makeRingMarker('#4ac6b8', '#1f6e66', 16);
+  graphGroup.add(currentMarker, startMarker, endMarker);
+  graphCenter.set(0, 0, 0); graphSize = 110;
+  rebuildExploreGraph();
+  setGraphMode('overview', false);
+  updateSceneTheme();
+}
+
+function makeRingMarker(primary, secondary, pixelDiameter) {
+  const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 96;
+  const context = canvas.getContext('2d');
+  context.strokeStyle = primary; context.lineWidth = 7; context.beginPath(); context.arc(48, 48, 36, 0, Math.PI * 2); context.stroke();
+  context.strokeStyle = secondary; context.lineWidth = 3; context.beginPath(); context.arc(48, 48, 29, 0, Math.PI * 2); context.stroke();
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
+  sprite.scale.set(1, 1, 1); sprite.userData.pixelDiameter = pixelDiameter; sprite.renderOrder = 20; return sprite;
+}
+
+function nodePosition(id, target = new THREE.Vector3()) {
+  if (graphMode === 'explore' && exploreForce.positions.has(id)) return target.copy(exploreForce.positions.get(id));
+  return target.fromArray(graphPositions, id * 3);
+}
+function recordExploration(from, to) {
+  exploredNodes.add(from); exploredNodes.add(to);
+  const edge = outgoing[from]?.find(item => item.target === to) || outgoing[to]?.find(item => item.target === from);
+  if (edge) exploredEdges.set(edgeKey(from, to), { source: from, target: to });
+}
+function clearExploreGroup() {
+  while (exploreGroup.children.length) {
+    const child = exploreGroup.children.at(-1); exploreGroup.remove(child); child.geometry?.dispose(); child.material?.dispose();
+  }
+}
+function seedExplorePosition(id, index) {
+  const existing = exploreForce.positions.get(id);
+  if (existing) return existing.clone();
+  const base = nodePosition(id, new THREE.Vector3());
+  const angle = index * 2.399963;
+  const radius = Math.min(12, 2 + Math.sqrt(index + 1) * 1.45);
+  const position = base.lengthSq() > 0
+    ? base.clone().multiplyScalar(0.12).add(new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius, 0.08 * Math.sin(angle * 1.7)))
+    : new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius, 0);
+  exploreForce.positions.set(id, position);
+  exploreForce.velocities.set(id, new THREE.Vector3());
+  return position;
+}
+function updateExploreForce(now) {
+  if (graphMode !== 'explore' || !exploreForce.nodes.length || !explorePoints) return;
+  const dt = Math.min(0.035, Math.max(0.001, (now - (exploreForce.lastTime || now)) / 1000));
+  exploreForce.lastTime = now;
+  const ids = exploreForce.nodes;
+  const forces = new Map(ids.map(id => [id, new THREE.Vector3()]));
+  // Compact local neighborhoods: short springs plus a small safety radius.
+  const { repulsion, spring, rest, plane: planeStrength, damping } = exploreForce.params;
+  const centering = 0.026;
+  for (let i = 0; i < ids.length; i += 1) {
+    const a = ids[i], pa = exploreForce.positions.get(a), fa = forces.get(a);
+    fa.addScaledVector(pa, -centering);
+    // Flatten the exploration view into a readable XY plane.
+    fa.z -= pa.z * planeStrength;
+    for (let j = i + 1; j < ids.length; j += 1) {
+      const b = ids[j], pb = exploreForce.positions.get(b), delta = pa.clone().sub(pb);
+      const distance = Math.max(0.65, delta.length());
+      delta.multiplyScalar(repulsion / (distance * distance * distance));
+      fa.add(delta); forces.get(b).sub(delta);
+    }
+  }
+  for (const [source, target] of exploreForce.edges) {
+    const a = exploreForce.positions.get(source), b = exploreForce.positions.get(target);
+    const delta = b.clone().sub(a), distance = Math.max(0.001, delta.length());
+    const force = delta.multiplyScalar(spring * (distance - rest) / distance);
+    forces.get(source).add(force); forces.get(target).sub(force);
+  }
+  for (const id of ids) {
+    const velocity = exploreForce.velocities.get(id), force = forces.get(id);
+    velocity.addScaledVector(force, dt * 28).multiplyScalar(damping);
+    velocity.z *= 0.72;
+    if (id === current) velocity.multiplyScalar(0.35);
+    velocity.clampLength(0, 2.5);
+    exploreForce.positions.get(id).addScaledVector(velocity, dt * 12);
+  }
+  const positionAttribute = explorePoints.geometry.getAttribute('position');
+  ids.forEach((id, index) => positionAttribute.setXYZ(index, ...exploreForce.positions.get(id).toArray()));
+  positionAttribute.needsUpdate = true;
+  if (exploreEdges) {
+    const edgeAttribute = exploreEdges.geometry.getAttribute('position');
+    exploreForce.edges.forEach(([source, target], index) => {
+      edgeAttribute.setXYZ(index * 2, ...exploreForce.positions.get(source).toArray());
+      edgeAttribute.setXYZ(index * 2 + 1, ...exploreForce.positions.get(target).toArray());
+    });
+    edgeAttribute.needsUpdate = true;
+  }
+  currentMarker?.position.copy(exploreForce.positions.get(current) || currentMarker.position);
+  startMarker?.position.copy(exploreForce.positions.get(routeStart) || startMarker.position);
+  if (routeEnd !== null) endMarker?.position.copy(exploreForce.positions.get(routeEnd) || endMarker.position);
+  pathLines = disposeOverlay(pathLines);
+  historyLines = disposeOverlay(historyLines);
+  historyLines = makePath(history, 0xffbd55, 0.9); if (historyLines) graphGroup.add(historyLines);
+  pathLines = makePath(routePath, isDarkTheme() ? 0xffffff : 0x27302b, 1, true); if (pathLines) graphGroup.add(pathLines);
+}
+function rebuildExploreGraph() {
+  if (!graphData || !graphPositions) return;
+  clearExploreGroup();
+  const nodeSet = new Set(exploredNodes);
+  const shownEdges = new Map(exploredEdges);
+  for (const edge of outgoing[current] || []) {
+    nodeSet.add(edge.target);
+    shownEdges.set(edgeKey(edge.source, edge.target), { source: edge.source, target: edge.target });
+  }
+  exploreNodeIds = [...nodeSet];
+  const positions = new Float32Array(exploreNodeIds.length * 3);
+  const colors = new Float32Array(exploreNodeIds.length * 3);
+  const dark = isDarkTheme();
+  const discoveredColor = new THREE.Color(dark ? 0xd3dbd7 : 0x34443d);
+  const frontierColor = new THREE.Color(dark ? 0x61706a : 0x7a8982);
+  exploreNodeIds.forEach((id, index) => {
+    const position = seedExplorePosition(id, index);
+    positions.set(position.toArray(), index * 3);
+    const color = exploredNodes.has(id) ? discoveredColor : frontierColor;
+    colors.set([color.r, color.g, color.b], index * 3);
+  });
+  const pointGeometry = new THREE.BufferGeometry();
+  pointGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  pointGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  explorePoints = new THREE.Points(pointGeometry, new THREE.PointsMaterial({ size: exploreForce.params.nodeSize, sizeAttenuation: false, map: pointTexture, alphaTest: 0.45, vertexColors: true, transparent: true, opacity: 0.96, depthWrite: false }));
+  explorePoints.userData.nodeIds = exploreNodeIds;
+  exploreGroup.add(explorePoints);
+
+  const edges = [...shownEdges.values()];
+  exploreForce.nodes = exploreNodeIds.slice();
+  exploreForce.edges = edges.map(edge => [edge.source, edge.target]);
+  const linePositions = new Float32Array(edges.length * 6);
+  edges.forEach((edge, index) => {
+    linePositions.set(exploreForce.positions.get(edge.source).toArray(), index * 6);
+    linePositions.set(exploreForce.positions.get(edge.target).toArray(), index * 6 + 3);
+  });
+  const lineGeometry = new THREE.BufferGeometry(); lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+  exploreEdges = new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({ color: dark ? 0xa9b8b1 : 0x65766e, transparent: true, opacity: dark ? 0.52 : 0.42, depthWrite: false }));
+  exploreEdges.material.linewidth = exploreForce.params.lineWidth;
+  exploreGroup.add(exploreEdges);
+  exploreForce.running = true;
+  exploreForce.temperature = 0.9;
+  if (graphMode === 'explore') {
+    pointCloud = explorePoints;
+    ui['explored-count'].textContent = exploreNodeIds.length.toLocaleString();
+    ui['graph-summary'].textContent = '力导向探索图 · 弹簧吸引 / 节点排斥 · 已织入 ' + exploredNodes.size + ' 个状态 · 当前显示 ' + exploreNodeIds.length + ' 个节点';
+  }
+}
+
+function disposeOverlay(object) {
+  if (!object) return null;
+  graphGroup.remove(object); object.geometry.dispose(); object.material.dispose(); return null;
+}
+function makePath(ids, color, opacity = 1, dashed = false) {
+  if (ids.length < 2) return null;
+  const points = ids.map(id => nodePosition(id, new THREE.Vector3()));
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const material = dashed
+    ? new THREE.LineDashedMaterial({ color, transparent: true, opacity, depthTest: false, dashSize: 0.45, gapSize: 0.28, linewidth: exploreForce.params.lineWidth })
+    : new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false });
+  material.linewidth = exploreForce.params.lineWidth;
+  const line = new THREE.Line(geometry, material);
+  if (dashed) { line.computeLineDistances(); line.userData.dashed = true; }
+  line.renderOrder = 12; return line;
+}
+function updateGraphState() {
+  if (!graphPositions || !currentMarker) return;
+  currentMarker.position.copy(nodePosition(current));
+  startMarker.position.copy(nodePosition(routeStart));
+  startMarker.visible = routeStart !== current || routeEnd !== null;
+  endMarker.visible = routeEnd !== null;
+  if (routeEnd !== null) endMarker.position.copy(nodePosition(routeEnd));
+  historyLines = disposeOverlay(historyLines);
+  pathLines = disposeOverlay(pathLines);
+  historyLines = makePath(history, 0xffbd55, 0.9);
+  if (historyLines) graphGroup.add(historyLines);
+  pathLines = makePath(routePath, isDarkTheme() ? 0xffffff : 0x27302b, 1, true);
+  if (pathLines) graphGroup.add(pathLines);
+  if (graphMode === 'overview') {
+    ui['explored-count'].textContent = graphData.states.length.toLocaleString();
+    ui['graph-summary'].textContent = '全览图 · 当前 #' + current + ' · ' + graphData.states.length.toLocaleString() + ' 个节点 · ' + edgePairs.length.toLocaleString() + ' 条连接';
+  }
+  ui['zoom-label'].textContent = Math.round(camera.position.distanceTo(controls.target)) + 'u';
+}
+
+function shortestPath(start, target) {
+  if (start === target) return [start];
+  const parent = new Int32Array(graphData.states.length); parent.fill(-2); parent[start] = -1;
+  const queue = new Int32Array(graphData.states.length); let head = 0, tail = 1; queue[0] = start;
+  while (head < tail && parent[target] === -2) {
+    const node = queue[head++];
+    for (const edge of outgoing[node]) if (parent[edge.target] === -2) { parent[edge.target] = node; queue[tail++] = edge.target; }
+  }
+  if (parent[target] === -2) return [];
+  const path = []; for (let node = target; node !== -1; node = parent[node]) path.push(node); return path.reverse();
+}
+function syncRouteControls() {
+  ui['route-start-id'].textContent = '#' + routeStart;
+  ui['route-end-id'].textContent = routeEnd === null ? '未选择' : '#' + routeEnd;
+  document.getElementById('pick-start').classList.toggle('active', selectionMode === 'start');
+  document.getElementById('pick-end').classList.toggle('active', selectionMode === 'end');
+  const play = document.getElementById('route-play');
+  play.disabled = routeEnd === null || routePath.length < 2;
+  play.textContent = isAnimating ? '■' : '▶';
+  document.querySelector('.graph-toolbar').classList.toggle('route-playing', isAnimating);
+}
+function selectRouteNode(id) {
+  cancelAnimation();
+  if (selectionMode === 'start') {
+    routeStart = id; routeEnd = null; routePath = []; selectionMode = 'end';
+    ui['last-move'].textContent = '已选择路径起点 #' + id + '，请选择终点';
+  } else {
+    // Default target selection starts at the state currently shown on the board.
+    // An explicitly pinned start remains available through “选择起点”.
+    if (!routeStartPinned) routeStart = current;
+    routeEnd = id; routePath = shortestPath(routeStart, routeEnd);
+    ui['last-move'].textContent = '从当前节点 #' + routeStart + ' → #' + routeEnd + '，共 ' + Math.max(0, routePath.length - 1) + ' 条合法边';
+    routeStartPinned = false;
+  }
+  syncRouteControls(); updateGraphState();
+  if (routeEnd !== null && routePath.length) return animateSelectedRoute();
+}
+function cancelAnimation(update = true) {
+  animationToken += 1; isAnimating = false; suppressCompletion = false;
+  if (update && ui['route-start-id']) syncRouteControls();
+}
+function wait(milliseconds) { return new Promise(resolve => setTimeout(resolve, milliseconds)); }
+async function animateSelectedRoute() {
+  if (isAnimating) { cancelAnimation(); return; }
+  if (routeEnd === null) return;
+  const toStart = shortestPath(current, routeStart);
+  const selectedPath = shortestPath(routeStart, routeEnd);
+  if (!toStart.length || !selectedPath.length) return;
+  routePath = selectedPath;
+  const sequence = [...toStart, ...selectedPath.slice(1)];
+  const token = ++animationToken; isAnimating = true; suppressCompletion = true; syncRouteControls(); updateGraphState();
+  for (let index = 1; index < sequence.length; index += 1) {
+    if (token !== animationToken) return;
+    const from = sequence[index - 1], to = sequence[index];
+    const edge = outgoing[from].find(item => item.target === to);
+    if (!edge) throw new Error('Animated route contains a non-Lean edge: ' + from + ' -> ' + to);
+    renderState(to, true, '路径动画 ' + index + '/' + (sequence.length - 1) + '：' + pieces[edge.piece].label + '向' + edge.direction, 'route');
+    await wait(55);
+  }
+  if (token !== animationToken) return;
+  isAnimating = false; suppressCompletion = false; syncRouteControls();
+  ui['last-move'].textContent = '已沿 ' + (sequence.length - 1) + ' 条 Lean 合法边到达 #' + current;
+  if (graphData.states[current].goal && shownGoal !== current) { shownGoal = current; showCompletion(graphData.states[current]); }
+}
+function locateCurrent() {
+  const target = nodePosition(current, new THREE.Vector3());
+  const direction = camera.position.clone().sub(controls.target).normalize();
+  controls.target.copy(target); camera.position.copy(target).add(direction.multiplyScalar(16)); controls.update();
+}
+function setGraphMode(mode, refit = true) {
+  graphMode = mode;
+  overviewGroup.visible = mode === 'overview'; exploreGroup.visible = mode === 'explore';
+  pointCloud = mode === 'overview' ? overviewPoints : explorePoints;
+  document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === mode));
+  ui['graph-count-label'].textContent = mode === 'overview' ? '完整图节点' : '当前织图节点';
+  if (mode === 'explore') rebuildExploreGraph();
+  updateGraphState(); if (refit) requestAnimationFrame(fitGraph);
+}
+
+function fitGraph() {
+  let center = graphCenter.clone(), size = graphSize;
+  if (graphMode === 'explore' && exploreGroup.children.length) {
+    const box = new THREE.Box3().setFromObject(exploreGroup);
+    center = box.getCenter(new THREE.Vector3());
+    const dimensions = box.getSize(new THREE.Vector3());
+    size = Math.max(4, dimensions.length());
+  }
+  controls.target.copy(center);
+  const exploreView = graphMode === 'explore';
+  camera.position.copy(center).add(exploreView
+    ? new THREE.Vector3(0, 0, Math.max(12, size * 1.18))
+    : new THREE.Vector3(size * 0.78, size * 0.48, size * 0.96));
+  camera.near = 0.05; camera.far = 1200; camera.updateProjectionMatrix(); controls.update();
+}
+function resizeRenderer() {
+  const rect = ui['graph-wrap'].getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height));
+  const canvas = renderer.domElement;
+  if (canvas.width !== Math.round(width * renderer.getPixelRatio()) || canvas.height !== Math.round(height * renderer.getPixelRatio())) renderer.setSize(width, height, false);
+  camera.aspect = width / height; camera.updateProjectionMatrix();
+}
+function updateMarkerScales() {
+  const height = Math.max(1, renderer.domElement.clientHeight);
+  const field = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  for (const marker of [currentMarker, startMarker, endMarker]) {
+    if (!marker) continue;
+    const worldSize = marker.position.distanceTo(camera.position) * field * marker.userData.pixelDiameter / height;
+    marker.scale.set(worldSize, worldSize, 1);
+  }
+}
+function animate(now = performance.now()) {
+  requestAnimationFrame(animate); resizeRenderer(); controls.update();
+  if (graphMode === 'explore') updateExploreForce(now);
+  updateMarkerScales(); renderer.render(scene, camera);
+}
+requestAnimationFrame(animate);
+
+function pickNode(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  raycaster.params.Points.threshold = Math.max(0.12, camera.position.distanceTo(controls.target) / (graphMode === 'explore' ? 105 : 170));
+  return raycaster.intersectObject(pointCloud, false)[0];
+}
+renderer.domElement.addEventListener('pointerdown', event => { pointerDown = { x: event.clientX, y: event.clientY }; });
+renderer.domElement.addEventListener('pointerup', event => {
+  if (!pointerDown || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 5) return;
+  const hit = pickNode(event);
+  if (hit) {
+    const id = pointCloud.userData.nodeIds ? pointCloud.userData.nodeIds[hit.index] : hit.index;
+    selectRouteNode(id);
+  }
+});
+renderer.domElement.addEventListener('pointermove', event => {
+  const hit = pointCloud ? pickNode(event) : null;
+  ui['node-tooltip'].classList.toggle('visible', Boolean(hit));
+  if (hit) {
+    const id = pointCloud.userData.nodeIds ? pointCloud.userData.nodeIds[hit.index] : hit.index;
+    ui['node-tooltip'].textContent = '#' + id + ' · 起点距离 ' + graphData.states[id].distance + ' · 目标距离 ' + layoutData.coordinates[id][3];
+    ui['node-tooltip'].style.left = event.offsetX + 12 + 'px'; ui['node-tooltip'].style.top = event.offsetY + 12 + 'px';
+  }
+});
+renderer.domElement.addEventListener('pointerleave', () => ui['node-tooltip'].classList.remove('visible'));
+
+function formatForceValue(key, value) {
+  return key === 'nodeSize' || key === 'repulsion' ? String(value) : Number(value).toFixed(2);
+}
+function syncForceSettings() {
+  const mapping = { rest: 'force-rest', spring: 'force-spring', repulsion: 'force-repulsion', plane: 'force-plane', nodeSize: 'force-node-size', damping: 'force-damping', lineWidth: 'force-line-width' };
+  for (const [key, id] of Object.entries(mapping)) {
+    const input = ui[id], output = ui[id + '-value'];
+    if (!input || !output) continue;
+    input.value = exploreForce.params[key]; output.textContent = formatForceValue(key, exploreForce.params[key]);
+  }
+  if (explorePoints) explorePoints.material.size = exploreForce.params.nodeSize;
+  if (exploreEdges) exploreEdges.material.linewidth = exploreForce.params.lineWidth;
+}
+function bindForceSettings() {
+  const mapping = { rest: 'force-rest', spring: 'force-spring', repulsion: 'force-repulsion', plane: 'force-plane', nodeSize: 'force-node-size', damping: 'force-damping', lineWidth: 'force-line-width' };
+  for (const [key, id] of Object.entries(mapping)) {
+    ui[id]?.addEventListener('input', event => {
+      exploreForce.params[key] = Number(event.target.value);
+      syncForceSettings();
+      exploreForce.lastTime = performance.now();
+    });
+  }
+  ui['force-settings-toggle']?.addEventListener('click', () => {
+    ui['force-settings'].hidden = !ui['force-settings'].hidden;
+    syncForceSettings();
+  });
+  ui['force-reset']?.addEventListener('click', () => {
+    Object.assign(exploreForce.params, defaultForceParams); syncForceSettings();
+  });
+  ui['random-walk-toggle']?.addEventListener('change', event => setRandomWalk(event.target.checked));
+  ui['random-walk-once']?.addEventListener('click', randomWalkStep);
+  ui['random-walk-toggle-button']?.addEventListener('click', () => setRandomWalk(!randomWalkEnabled));
+  syncForceSettings();
+}
+bindForceSettings();
+document.getElementById('fit').onclick = fitGraph;
+document.getElementById('locate-current').onclick = locateCurrent;
+document.getElementById('zoom-in').onclick = () => { camera.position.sub(controls.target).multiplyScalar(0.48).add(controls.target); controls.update(); };
+document.getElementById('zoom-out').onclick = () => { camera.position.sub(controls.target).multiplyScalar(1.7).add(controls.target); controls.update(); };
+document.getElementById('pick-start').onclick = () => { selectionMode = 'start'; routeStartPinned = true; syncRouteControls(); };
+document.getElementById('pick-end').onclick = () => { selectionMode = 'end'; syncRouteControls(); };
+document.getElementById('route-play').onclick = animateSelectedRoute;
+document.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => setGraphMode(button.dataset.mode));
+document.getElementById('theme').onclick = () => { document.documentElement.classList.toggle('dark'); updateSceneTheme(); };
+
+const leanPieceNames = ['caoCao', 'guanYu', 'zhangFei', 'zhaoYun', 'maChao', 'huangZhong', 'soldier1', 'soldier2', 'soldier3', 'soldier4'];
+const leanDirectionNames = { '上': 'up', '下': 'down', '左': 'left', '右': 'right' };
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
+}
+function samePositions(a, b) {
+  return a.length === b.length && a.every((pos, i) => pos[0] === b[i][0] && pos[1] === b[i][1]);
+}
+function movedPositions(source, edge) {
+  const positions = source.positions.map(pos => pos.slice());
+  const delta = { '上': [0, -1], '下': [0, 1], '左': [-1, 0], '右': [1, 0] }[edge.direction];
+  positions[edge.piece] = [positions[edge.piece][0] + delta[0], positions[edge.piece][1] + delta[1]];
+  return positions;
+}
+function sortedPositionKey(positions, indices) {
+  return indices.map(i => positions[i].join(',')).sort().join('|');
+}
+function sameShapePositions(actual, representative) {
+  return samePositions(actual.slice(0, 2), representative.slice(0, 2)) &&
+    sortedPositionKey(actual, [2, 3, 4, 5]) === sortedPositionKey(representative, [2, 3, 4, 5]) &&
+    sortedPositionKey(actual, [6, 7, 8, 9]) === sortedPositionKey(representative, [6, 7, 8, 9]);
+}
+function proofTraceSteps() {
+  const steps = [];
+  for (let i = 1; i < history.length; i += 1) {
+    const sourceId = history[i - 1], targetId = history[i];
+    const edge = (outgoing[sourceId] || []).find(candidate => candidate.target === targetId);
+    if (!edge) continue;
+    const source = graphData.states[sourceId], target = graphData.states[targetId];
+    const actual = movedPositions(source, edge);
+    const exact = samePositions(actual, target.positions);
+    steps.push({ index: i, sourceId, targetId, source, target, edge, actual, exact,
+      sameShape: exact || sameShapePositions(actual, target.positions) });
+  }
+  return steps;
+}
+function leanAction(step) {
+  return '⟨.' + leanPieceNames[step.edge.piece] + ', .' + leanDirectionNames[step.edge.direction] + '⟩';
+}
+function generatedProofCode(steps, quotient) {
+  const end = history.at(-1) || 0;
+  if (!steps.length) return `def currentPath : Path classic classic :=
+  Path.nil classic`;
+  const type = quotient ? 'QPath' : 'Path';
+  const proofNames = steps.map(step => {
+    const action = leanAction(step);
+    if (quotient) return `  -- step ${step.index}: #${step.sourceId} → #${step.targetId}
+  .cons ${action} edge${step.index}_executed edge${step.index}_sameShape`;
+    return `  -- step ${step.index}: #${step.sourceId} → #${step.targetId}
+  .cons ${action} edge${step.index}_executed`;
+  });
+  let tail = '    .nil state' + end;
+  for (let i = proofNames.length - 1; i >= 0; i -= 1) tail = proofNames[i] + '\n' + tail.replace(/^/gm, '  ');
+  return `-- 状态常量与 edge*_executed / edge*_sameShape 由图证书导出。
+def currentProof : ${type} state0 state${end} :=
+${tail}`;
+}
+function updateProofTrace() {
+  if (!graphData || !ui['proof-step-list']) return;
+  const steps = proofTraceSteps();
+  const quotientCount = steps.filter(step => !step.exact).length;
+  const exactCount = steps.length - quotientCount;
+  const quotient = quotientCount > 0;
+  const target = history.at(-1) || 0;
+  const goal = graphData.states[target]?.goal;
+  const claimType = goal ? (quotient ? 'QSolution state0' : (navigationUsed ? 'Solution state0' : 'CertifiedPlay state0')) : (quotient ? 'QPath state0 state' + target : 'Path state0 state' + target);
+  ui['proof-claim'].textContent = claimType;
+  ui['proof-explanation'].textContent = !steps.length
+    ? '零步证明由 Path.nil state0 构造。每次合法移动都会在这里增加一个 cons 构造器。'
+    : quotient
+      ? '当前证明包含规范代表切换，因此整体类型是 QPath：每一步同时保存 tryMove 等式和 SameShape 代表证明。'
+      : '当前所有目标都与 tryMove 的带标签结果完全相同，因此这些 cons 构造器组成精确 Path。';
+  ui['proof-exact-count'].textContent = exactCount;
+  ui['proof-quotient-count'].textContent = quotientCount;
+  ui['proof-length'].textContent = steps.length + ' steps';
+  ui['proof-step-list'].innerHTML = steps.length ? steps.map(step => {
+    const piece = pieces[step.edge.piece].label, action = leanAction(step);
+    return '<li class="proof-step ' + (step.exact ? '' : 'quotient') + '" data-index="' + step.index + '">' +
+      '<h4>#' + step.sourceId + ' → #' + step.targetId + '<span>' + (step.exact ? 'Step' : 'QStep') + '</span></h4>' +
+      '<div class="proof-equation">tryMove state' + step.sourceId + ' ' + escapeHtml(action) + '<br>= some actual' + step.index +
+      '<br><b>动作：</b>' + piece + '向' + step.edge.direction + '</div>' +
+      (step.exact ? '<div class="proof-constructor">actual' + step.index + ' = state' + step.targetId + ' · Path.cons</div>' :
+        '<div class="proof-equation proof-represented">SameShape actual' + step.index + ' state' + step.targetId + ' = true</div><div class="proof-constructor">QPath.cons executed represented tail</div>') + '</li>';
+  }).join('') : '<div class="proof-empty">初始状态本身已有零步证明<code>Path.nil state0</code>移动一个棋子，观察证明项增加一个构造器。</div>';
+  let tree = '<div><b>' + (quotient ? 'QPath' : 'Path') + '</b> state0 state' + target + '</div>';
+  if (!steps.length) tree += '<div class="proof-tree-node"><em>Path.nil</em> state0</div>';
+  for (const step of steps) tree += '<div class="proof-tree-node"><em>' + (quotient ? 'QPath.cons' : 'Path.cons') + '</em> ' + escapeHtml(leanAction(step)) +
+    '<div>executed : tryMove … = some actual' + step.index + '</div>' +
+    (!step.exact ? '<div class="quotient-term">represented : SameShape actual' + step.index + ' state' + step.targetId + '</div>' : '') + '</div>';
+  tree += '<div class="proof-tree-node"><em>' + (quotient ? 'QPath.nil' : 'Path.nil') + '</em> state' + target + '</div>';
+  if (goal) tree += '<div class="proof-tree-node"><b>solved</b> : goal state' + target + ' = true<br><em>⇒ ' + (quotient ? 'QSolution' : (navigationUsed ? 'Solution' : 'CertifiedPlay')) + '</em></div>';
+  ui['proof-tree'].innerHTML = tree;
+  ui['proof-code'].textContent = generatedProofCode(steps, quotient);
+  ui['proof-code-status'].textContent = quotient ? 'QPath：执行等式 + 同形代表证书' : 'Path：每一步是精确 tryMove 等式';
+}
+
+function showCompletion(state) {
+  ui['result-node'].textContent = '#' + state.id;
+  ui['result-moves'].textContent = navigationUsed ? playerMoves + ' + 导航' : playerMoves + ' 步';
+  ui['result-distance'].textContent = state.distance + ' 步';
+  if (navigationUsed) {
+    ui['result-certification'].textContent = '该终局节点由 Lean BFS 计算为从经典布局可达；本次过程使用了三维图导航，因此不作为连续玩家解计步。';
+    ui['result-optimal'].textContent = '可达终局 · goal = true';
+    ui['result-optimal'].className = 'result-verdict computed';
+  } else if (playerMoves === shortestGoalDistance) {
+    ui['result-certification'].textContent = '这条操作序列中的每一步都来自 Lean 导出的 tryMove 合法转换。';
+    ui['result-optimal'].textContent = '达到 Lean BFS 计算的全局最短值：' + shortestGoalDistance + ' 步';
+    ui['result-optimal'].className = 'result-verdict';
+  } else {
+    ui['result-certification'].textContent = '这条操作序列中的每一步都来自 Lean 导出的 tryMove 合法转换。';
+    ui['result-optimal'].textContent = '合法完成 · 比计算最短值多 ' + Math.max(0, playerMoves - shortestGoalDistance) + ' 步';
+    ui['result-optimal'].className = 'result-verdict computed';
+  }
+  if (!ui['result-dialog'].open) ui['result-dialog'].showModal();
+}
+
+function setProofTrace(open) {
+  ui['proof-trace']?.classList.toggle('open', open);
+  document.getElementById('proof-trace-toggle')?.classList.toggle('active', open);
+  if (open) updateProofTrace();
+}
+document.getElementById('proof-trace-toggle').onclick = () => setProofTrace(!ui['proof-trace'].classList.contains('open'));
+document.getElementById('proof-trace-close').onclick = () => setProofTrace(false);
+document.querySelectorAll('[data-proof-view]').forEach(button => button.onclick = () => {
+  document.querySelectorAll('[data-proof-view]').forEach(item => item.classList.toggle('active', item === button));
+  document.querySelectorAll('.proof-view').forEach(view => view.classList.remove('active'));
+  const id = button.dataset.proofView === 'code' ? 'proof-code-view' : 'proof-' + button.dataset.proofView;
+  document.getElementById(id)?.classList.add('active');
+});
+document.getElementById('proof-copy').onclick = async () => {
+  await navigator.clipboard.writeText(ui['proof-code'].textContent);
+  const button = document.getElementById('proof-copy');
+  button.textContent = '已复制'; setTimeout(() => { button.textContent = '复制代码'; }, 1200);
+};
+
+const openProof = () => { if (!ui['proof-dialog'].open) ui['proof-dialog'].showModal(); };
+document.getElementById('proof-open').onclick = openProof;
+document.getElementById('proof-open-panel').onclick = openProof;
+document.getElementById('proof-close').onclick = () => ui['proof-dialog'].close();
+document.getElementById('result-close').onclick = () => ui['result-dialog'].close();
+document.getElementById('result-reset').onclick = () => { ui['result-dialog'].close(); document.getElementById('reset').click(); };
+for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+
+if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
+  setMode: mode => setGraphMode(mode),
+  selectStart: id => { selectionMode = 'start'; routeStartPinned = true; return selectRouteNode(id); },
+  selectEnd: id => { selectionMode = 'end'; return selectRouteNode(id); },
+  locateCurrent,
+  stop: cancelAnimation,
+  state: () => ({ current, graphMode, routeStart, routeEnd, routeLength: routePath.length, explored: exploredNodes.size, shown: exploreNodeIds.length, isAnimating, cameraDistance: camera.position.distanceTo(controls.target), pointSize: pointCloud?.material.size, sizeAttenuation: pointCloud?.material.sizeAttenuation, markerScale: currentMarker?.scale.x })
+};
+new ResizeObserver(resizeRenderer).observe(ui['graph-wrap']);
+loadGraph().catch(error => { ui.loading.innerHTML = '<strong>三维图载入失败，请刷新页面</strong>'; console.error(error); });

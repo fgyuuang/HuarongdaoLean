@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>华容道状态图</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="seal">华</span><div><strong>华容道状态图</strong><small>Lean 4 verified transition system</small></div></div>
+    <div class="metrics">
+      <span><b id="state-count">--</b> 状态</span><span><b id="edge-count">--</b> 转换</span><span><b id="depth-count">--</b> 层</span>
+    </div>
+    <div class="header-actions">
+      <button id="proof-trace-toggle" class="verified-button" title="打开实时 Lean 路径证明"><span></span>路径证明</button>
+      <button id="proof-open" class="verified-button secondary" title="查看 Lean 4 形式化内容"><span></span>定理总览</button>
+      <button id="fit" class="icon-button" title="适应完整状态图">⌗</button>
+      <button id="theme" class="icon-button" title="切换明暗主题">◐</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="game-panel">
+      <div class="panel-heading"><div><span class="eyebrow">CURRENT STATE</span><h1>横刀立马</h1></div><span id="status-badge" class="badge">探索中</span></div>
+      <div id="board" class="board keyboard-surface" tabindex="0" aria-label="华容道棋盘。WASD选择棋子，方向键移动"></div>
+      <div class="move-pad">
+        <button data-dir="上" class="move up" title="向上移动">↑</button>
+        <button data-dir="左" class="move left" title="向左移动">←</button>
+        <button data-dir="下" class="move down" title="向下移动">↓</button>
+        <button data-dir="右" class="move right" title="向右移动">→</button>
+      </div>
+      <div class="commands">
+        <button id="undo">↶ 撤回</button><button id="reset">↺ 复位</button><button id="hint" class="primary">◎ 求解提示</button><button id="go-goal" class="goal-nav">⇢ 导航到终点</button>
+      </div>
+      <div class="state-readout">
+        <div><span>节点</span><strong id="node-id">#0</strong></div>
+        <div><span>距初始</span><strong id="distance">0 步</strong></div>
+        <div><span>合法后继</span><strong id="degree">0</strong></div>
+      </div>
+      <div class="move-log"><span id="selection">请选择棋子</span><strong id="last-move">经典初始布局</strong></div>
+      <section class="lean-status" aria-label="Lean 4 实时验证状态">
+        <div class="lean-status-title"><span>LEAN 4 CHECK</span><button id="proof-open-panel">查看形式化</button></div>
+        <div class="lean-checks">
+          <div><span>ValidState</span><strong id="lean-valid"><i></i>true</strong></div>
+          <div><span>Goal</span><strong id="lean-goal">false</strong></div>
+          <div><span>Transition</span><strong id="lean-transition">initial</strong></div>
+          <div><span>数据来源</span><strong>Lean BFS</strong></div>
+        </div>
+      </section>
+    </aside>
+
+    <section class="graph-panel">
+      <div class="graph-toolbar">
+        <div class="view-tabs"><button class="active" data-mode="overview">全览模式</button><button data-mode="explore">探索模式 · 力导向</button></div>
+        <div class="route-tools">
+          <button id="locate-current" class="tool-icon" title="快速定位当前状态">⌖</button>
+          <button id="pick-start" class="route-pick" title="点击后在图中选择固定起点"><span>固定起点</span><b id="route-start-id">#0</b></button>
+          <span class="route-arrow">→</span>
+          <button id="pick-end" class="route-pick active" title="从当前节点选择目标"><span>当前 → 终点</span><b id="route-end-id">未选择</b></button>
+          <button id="route-play" class="tool-icon" title="播放合法路径动画" disabled>▶</button>
+        </div>
+        <div class="explore-count"><span id="graph-count-label">完整图节点</span><strong id="explored-count">0</strong><button id="force-settings-toggle" class="force-settings-toggle" title="调整探索模式力导向参数">⚙ 参数</button></div>
+      </div>
+      <div id="force-settings" class="force-settings" hidden>
+         <div class="force-settings-heading"><strong>力导向参数</strong><button id="force-reset" type="button">恢复默认</button><label class="force-toggle-row"><span>自动随机游走</span><input id="random-walk-toggle" type="checkbox"><b id="random-walk-status">关闭</b></label></div>
+         <label><span>连线长度 <b id="force-rest-value">2.15</b></span><input id="force-rest" type="range" min="0.15" max="12" step="0.05" value="2.15"></label>
+         <label><span>吸引强度 <b id="force-spring-value">0.12</b></span><input id="force-spring" type="range" min="0.001" max="1.2" step="0.01" value="0.12"></label>
+         <label><span>排斥强度 <b id="force-repulsion-value">11</b></span><input id="force-repulsion" type="range" min="0" max="120" step="1" value="11"></label>
+         <label><span>平面化 <b id="force-plane-value">0.32</b></span><input id="force-plane" type="range" min="0" max="1" step="0.01" value="0.32"></label>
+         <label><span>节点大小 <b id="force-node-size-value">7</b></span><input id="force-node-size" type="range" min="2" max="30" step="0.5" value="7"></label>
+         <label><span>阻尼 <b id="force-damping-value">0.86</b></span><input id="force-damping" type="range" min="0.35" max="0.995" step="0.005" value="0.86"></label>
+         <label><span>线段粗细 <b id="force-line-width-value">1.5</b></span><input id="force-line-width" type="range" min="0.5" max="8" step="0.5" value="1.5"></label>
+         <div class="random-walk-actions"><button id="random-walk-once" type="button">R 随机一步</button><button id="random-walk-toggle-button" type="button">T 自动游走</button></div>
+       </div>
+       <div id="graph-wrap" class="graph-wrap">
+        <canvas id="graph" class="keyboard-surface" tabindex="0" aria-label="状态图。方向键沿合法边前进，WASD选择已开拓节点"></canvas>
+        <div id="node-tooltip" class="node-tooltip"></div>
+        <div id="loading" class="loading"><span></span><strong>载入 25,955 个状态节点</strong></div>
+        <div class="legend"><span><i class="initial"></i>路径起点</span><span><i class="current"></i>当前状态</span><span><i class="goal"></i>路径终点</span><span><i class="frontier"></i>合法路径</span></div>
+        <div class="zoom-controls"><button id="zoom-in" title="放大">+</button><button id="zoom-out" title="缩小">−</button></div>
+        <aside id="proof-trace" class="proof-trace open" aria-label="Lean 路径证明工作台">
+          <header><div><small>PROOF TERM · LIVE</small><h2>当前路径就是证明</h2></div><button id="proof-trace-close" title="关闭证明工作台">×</button></header>
+          <section class="proof-claim"><span>当前命题</span><code id="proof-claim">Path classic state0</code><p id="proof-explanation">零步路径由 Path.nil 构造。</p></section>
+          <div class="proof-tabs"><button class="active" data-proof-view="steps">证明步骤</button><button data-proof-view="term">证明项</button><button data-proof-view="code">Lean 代码</button></div>
+          <section id="proof-steps" class="proof-view active"><ol id="proof-step-list"></ol></section>
+          <section id="proof-term" class="proof-view"><div id="proof-tree" class="proof-tree"></div></section>
+          <section id="proof-code-view" class="proof-view"><div class="proof-code-toolbar"><span id="proof-code-status">可复制的证明骨架</span><button id="proof-copy">复制代码</button></div><pre><code id="proof-code"></code></pre></section>
+          <footer><span><i class="exact-dot"></i><b id="proof-exact-count">0</b> 精确 Step</span><span><i class="quotient-dot"></i><b id="proof-quotient-count">0</b> 商 QStep</span><strong id="proof-length">0 steps</strong></footer>
+        </aside>
+      </div>
+      <footer class="graph-footer"><span id="graph-summary">等待图数据</span><a href="reference-layout.LICENSE.txt" target="_blank" title="布局坐标适配自 2swap/Klotski-Webpage">布局来源 · GPLv3</a><span id="zoom-label">100%</span></footer>
+    </section>
+  </main>
+
+  <dialog id="proof-dialog" class="info-dialog">
+    <div class="dialog-heading"><div><span class="dialog-mark">L4</span><div><small>FORMAL VERIFICATION</small><h2>Lean 4 在本项目中负责什么</h2></div></div><button id="proof-close" class="dialog-close" title="关闭">×</button></div>
+    <div class="verification-flow">
+      <div><b>1</b><strong>状态建模</strong><span>State / Piece / ValidState</span></div><i>→</i>
+      <div><b>2</b><strong>合法转换</strong><span>tryMove / Step</span></div><i>→</i>
+      <div><b>3</b><strong>可达性</strong><span>Reachable</span></div><i>→</i>
+      <div><b>4</b><strong>图数据</strong><span>BFS / graph.json</span></div>
+    </div>
+    <div class="proof-grid">
+      <section><h3>编译器已检查的定理</h3><code>mem_legalMoves_iff</code><p>动作枚举与 tryMove 成功完全等价。</p><code>reachable_preserves_validity</code><p>所有可达状态保持合法。</p><code>classic116Play_length</code><p>116 个玩家动作执行后到达 goal = true。</p><code>sameShape_refl / symm / trans</code><p>同形标签置换构成等价关系。</p><code>mirror_twice</code><p>有界棋盘左右镜像两次回到原状态。</p><code>solution_lower_bound</code><p>商图势函数证书推出任意解的长度下界。</p></section>
+      <section><h3>Lean 证书检查结果</h3><div class="proof-number"><b>25,955</b><span>唯一商状态代表</span></div><div class="proof-number"><b>83,896</b><span>全部通过 QStep 检查</span></div><div class="proof-number"><b>TRUE</b><span>合法后继闭包</span></div><div class="proof-number"><b>116</b><span>目标层下界与可达实例</span></div></section>
+    </div>
+    <div class="proof-boundary"><strong>验证边界</strong><span>116 步具体通关是 Lean 内核检查的 CertifiedPlay；商边、闭包、唯一代表、距离与目标下界由 Lean 可执行证书程序检查为 true。抽象定理已证明这些证书足以推出最短性；剩余工作是把 25,955 节点的大证书从可执行检查结果封装成内核级 LowerBoundCertificate，避免在证明阶段重跑完整 BFS。</span></div>
+  </dialog>
+
+  <dialog id="result-dialog" class="result-dialog">
+    <div class="result-seal">通</div><small>GOAL PREDICATE = TRUE</small><h2>曹操已到达出口</h2>
+    <p id="result-certification">这条操作序列中的每一步都来自 Lean 导出的合法转换。</p>
+    <div class="result-stats"><div><span>完成节点</span><strong id="result-node">#0</strong></div><div><span>棋盘移动</span><strong id="result-moves">0</strong></div><div><span>BFS 最短距离</span><strong id="result-distance">0</strong></div></div>
+    <div id="result-optimal" class="result-verdict"></div>
+    <div class="result-actions"><button id="result-close">查看终局</button><button id="result-reset" class="primary">重新开始</button></div>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
