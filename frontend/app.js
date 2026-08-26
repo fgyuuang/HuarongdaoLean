@@ -13,7 +13,7 @@ const pieces = [
   { label: '兵三', cls: 'soldier', w: 1, h: 1 },
   { label: '兵四', cls: 'soldier', w: 1, h: 1 }
 ];
-const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value random-walk-toggle random-walk-status proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length'.split(' ');
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length'.split(' ');
 const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
 let graphData, layoutData, outgoing, shortestGoalDistance = 0;
@@ -51,6 +51,10 @@ let keyboardFocus = 'board';
 let graphKeyboardIndex = 0;
 let randomWalkTimer = null;
 let randomWalkEnabled = false;
+let forceGraph = null, forceNodes = [], forceLinks = [], forcePinned = true;
+let forceCurrentMarker = null, forceStartMarker = null, forceEndMarker = null, forceHoveredNode = null;
+let forceWidth = 0, forceHeight = 0, forceInitialFit = true;
+const forcePointer = { x: 0, y: 0 };
 // Explore mode uses a small, incremental force simulation. Positions are kept
 // between rebuilds so adding frontier nodes does not make the graph jump.
 const exploreForce = {
@@ -68,6 +72,13 @@ function updateSceneTheme() {
   if (overviewEdges) {
     overviewEdges.material.color.set(dark ? 0x76807b : 0x7a857f);
     overviewEdges.material.opacity = dark ? 0.16 : 0.28;
+  }
+  if (forceGraph) {
+    forceGraph
+      .backgroundColor(dark ? '#1b1f1c' : '#f2f3ef')
+      .nodeColor(forceNodeColor)
+      .linkColor(() => dark ? '#77817c' : '#727c77')
+      .refresh();
   }
   if (graphData && graphPositions) rebuildExploreGraph();
   if (currentMarker) updateGraphState();
@@ -179,7 +190,7 @@ function move(direction) {
 document.querySelectorAll('[data-dir]').forEach(button => button.onclick = () => move(button.dataset.dir));
 function focusKeyboardSurface(surface) {
   keyboardFocus = surface;
-  const element = surface === 'board' ? ui.board : ui.graph;
+  const element = surface === 'board' ? ui.board : (graphMode === 'force' ? ui['graph-force'] : ui.graph);
   element?.classList.toggle('keyboard-active', true);
   document.querySelectorAll('.keyboard-surface').forEach(node => { if (node !== element) node.classList.remove('keyboard-active'); });
 }
@@ -242,8 +253,10 @@ document.addEventListener('keydown', event => {
 });
 ui.board?.addEventListener('focus', () => focusKeyboardSurface('board'));
 ui.graph?.addEventListener('focus', () => focusKeyboardSurface('graph'));
+ui['graph-force']?.addEventListener('focus', () => focusKeyboardSurface('graph'));
 ui.board?.addEventListener('pointerdown', () => focusKeyboardSurface('board'));
 ui.graph?.addEventListener('pointerdown', () => focusKeyboardSurface('graph'));
+ui['graph-force']?.addEventListener('pointerdown', () => focusKeyboardSurface('graph'));
 document.getElementById('undo').onclick = () => {
   cancelAnimation();
   if (history.length > 1) {
@@ -340,6 +353,7 @@ function buildFullGraph() {
   endMarker = makeRingMarker('#4ac6b8', '#1f6e66', 16);
   graphGroup.add(currentMarker, startMarker, endMarker);
   graphCenter.set(0, 0, 0); graphSize = 110;
+  prepareForceGraphData();
   rebuildExploreGraph();
   setGraphMode('overview', false);
   updateSceneTheme();
@@ -352,6 +366,196 @@ function makeRingMarker(primary, secondary, pixelDiameter) {
   context.strokeStyle = secondary; context.lineWidth = 3; context.beginPath(); context.arc(48, 48, 29, 0, Math.PI * 2); context.stroke();
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
   sprite.scale.set(1, 1, 1); sprite.userData.pixelDiameter = pixelDiameter; sprite.renderOrder = 20; return sprite;
+}
+
+function prepareForceGraphData() {
+  const raw = layoutData.coordinates;
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (const coordinate of raw) for (let axis = 0; axis < 3; axis += 1) {
+    min[axis] = Math.min(min[axis], coordinate[axis]);
+    max[axis] = Math.max(max[axis], coordinate[axis]);
+  }
+  const center = min.map((value, axis) => (value + max[axis]) / 2);
+  const scale = 1800 / Math.max(...max.map((value, axis) => value - min[axis]));
+  forceNodes = graphData.states.map((state, id) => {
+    const rx = (raw[id][0] - center[0]) * scale;
+    const ry = (raw[id][1] - center[1]) * scale;
+    const rz = (raw[id][2] - center[2]) * scale;
+    return {
+      id, distance: state.distance, goal: state.goal, goalDistance: raw[id][3],
+      rx, ry, rz, x: rx, y: ry, z: rz, fx: rx, fy: ry, fz: rz
+    };
+  });
+  forceLinks = edgePairs.map(([source, target]) => {
+    const a = forceNodes[source], b = forceNodes[target];
+    const restLength = Math.hypot(a.rx - b.rx, a.ry - b.ry, a.rz - b.rz);
+    return { source, target, restLength: Math.max(0.8, Math.min(80, restLength)) };
+  });
+}
+
+function forceNodeColor(node) {
+  if (node.goal) return isDarkTheme() ? '#56c7b9' : '#28736d';
+  if (node.goalDistance <= 20) return isDarkTheme() ? '#d4a651' : '#9a6b25';
+  return isDarkTheme() ? '#aab3ae' : '#59635e';
+}
+
+function referenceAnchorForce(strength = 0.015) {
+  let nodes = [];
+  function force(alpha) {
+    const k = strength * alpha;
+    for (const node of nodes) {
+      if (node.fx != null) continue;
+      node.vx += (node.rx - node.x) * k;
+      node.vy += (node.ry - node.y) * k;
+      node.vz += (node.rz - node.z) * k;
+    }
+  }
+  force.initialize = value => { nodes = value; };
+  return force;
+}
+
+function forceNodePosition(id) {
+  const node = forceNodes[id];
+  return node && Number.isFinite(node.x) ? node : null;
+}
+
+function syncForceMarkerPositions() {
+  if (!forceGraph || !forceCurrentMarker) return;
+  const currentNode = forceNodePosition(current);
+  const startNode = forceNodePosition(routeStart);
+  const endNode = routeEnd === null ? null : forceNodePosition(routeEnd);
+  if (currentNode) forceCurrentMarker.position.set(currentNode.x, currentNode.y, currentNode.z);
+  if (startNode) forceStartMarker.position.set(startNode.x, startNode.y, startNode.z);
+  if (endNode) forceEndMarker.position.set(endNode.x, endNode.y, endNode.z);
+  forceStartMarker.visible = Boolean(startNode) && (routeStart !== current || routeEnd !== null);
+  forceEndMarker.visible = Boolean(endNode);
+}
+
+function syncForceMarkerScales() {
+  if (!forceGraph || !forceCurrentMarker) return;
+  const cameraObject = forceGraph.camera();
+  const cameraPosition = forceGraph.cameraPosition();
+  const height = Math.max(1, ui['graph-force'].clientHeight);
+  const field = 2 * Math.tan(THREE.MathUtils.degToRad(cameraObject.fov || 45) / 2);
+  for (const marker of [forceCurrentMarker, forceStartMarker, forceEndMarker]) {
+    const distance = Math.hypot(
+      cameraPosition.x - marker.position.x,
+      cameraPosition.y - marker.position.y,
+      cameraPosition.z - marker.position.z
+    );
+    const worldSize = distance * field * marker.userData.pixelDiameter / height;
+    marker.scale.set(worldSize, worldSize, 1);
+  }
+}
+
+function forceCameraDistance() {
+  if (!forceGraph) return 0;
+  const position = forceGraph.cameraPosition();
+  const target = forceGraph.controls().target || { x: 0, y: 0, z: 0 };
+  return Math.hypot(position.x - target.x, position.y - target.y, position.z - target.z);
+}
+
+function updateForceTooltip(node = forceHoveredNode) {
+  forceHoveredNode = node;
+  ui['node-tooltip'].classList.toggle('visible', Boolean(node));
+  ui['graph-force'].style.cursor = node ? 'pointer' : 'grab';
+  if (!node) return;
+  ui['node-tooltip'].textContent = '#' + node.id + ' · 起点距离 ' + node.distance + ' · 目标距离 ' + node.goalDistance;
+  ui['node-tooltip'].style.left = forcePointer.x + 12 + 'px';
+  ui['node-tooltip'].style.top = forcePointer.y + 12 + 'px';
+}
+
+function ensureForceGraph() {
+  if (forceGraph) return forceGraph;
+  if (!window.ForceGraph3D) throw new Error('3d-force-graph runtime unavailable');
+  const container = ui['graph-force'];
+  const rect = ui['graph-wrap'].getBoundingClientRect();
+  ui['force3d-status'].textContent = '正在创建 25,955 个 3D 节点';
+  forceGraph = new window.ForceGraph3D(container, {
+    controlType: 'orbit',
+    rendererConfig: { antialias: false, alpha: false, powerPreference: 'high-performance' }
+  })
+    .width(Math.max(1, Math.round(rect.width)))
+    .height(Math.max(1, Math.round(rect.height)))
+    .backgroundColor(isDarkTheme() ? '#1b1f1c' : '#f2f3ef')
+    .showNavInfo(false)
+    .nodeId('id')
+    .nodeVal(node => node.goal ? 2.2 : 1)
+    .nodeRelSize(0.85)
+    .nodeResolution(3)
+    .nodeColor(forceNodeColor)
+    .nodeOpacity(0.9)
+    .nodeLabel(() => '')
+    .linkColor(() => isDarkTheme() ? '#77817c' : '#727c77')
+    .linkOpacity(0.075)
+    .linkWidth(0)
+    .linkCurvature(0)
+    .linkDirectionalParticles(0)
+    .linkHoverPrecision(0)
+    .enableNodeDrag(false)
+    .enablePointerInteraction(true)
+    .warmupTicks(0)
+    .cooldownTicks(1)
+    .cooldownTime(1200)
+    .d3AlphaMin(0.02)
+    .d3AlphaDecay(0.18)
+    .d3VelocityDecay(0.65)
+    .onNodeClick(node => selectRouteNode(Number(node.id)))
+    .onNodeHover(node => updateForceTooltip(node))
+    .onEngineTick(syncForceMarkerPositions)
+    .onEngineStop(() => {
+      ui['force3d-status'].textContent = forcePinned ? '参考坐标已固定' : '力导向已冷却';
+      if (graphMode === 'force' && forceInitialFit) {
+        forceInitialFit = false;
+        requestAnimationFrame(() => forceGraph.zoomToFit(700, 48));
+      }
+      if (graphMode === 'force') updateGraphState();
+    })
+    .graphData({ nodes: forceNodes, links: forceLinks });
+
+  const linkForce = forceGraph.d3Force('link');
+  linkForce?.distance(link => link.restLength).strength(0.035).iterations(1);
+  const chargeForce = forceGraph.d3Force('charge');
+  chargeForce?.strength(-0.6).distanceMax(64).theta(1.35);
+  forceGraph.d3Force('reference-anchor', referenceAnchorForce());
+  forceGraph.renderer().setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+
+  forceCurrentMarker = makeRingMarker('#9f2d2d', '#ffffff', 22);
+  forceStartMarker = makeRingMarker('#d6a342', '#6f531f', 16);
+  forceEndMarker = makeRingMarker('#4ac6b8', '#1f6e66', 16);
+  forceGraph.scene().add(forceCurrentMarker, forceStartMarker, forceEndMarker);
+  syncForceMarkerPositions();
+  syncForceMarkerScales();
+  forceWidth = Math.max(1, Math.round(rect.width));
+  forceHeight = Math.max(1, Math.round(rect.height));
+  ui['force3d-status'].textContent = '参考坐标已固定';
+  return forceGraph;
+}
+
+function releaseAndReheatForceGraph() {
+  const graph = ensureForceGraph();
+  forcePinned = false;
+  for (const node of forceNodes) {
+    node.fx = null; node.fy = null; node.fz = null;
+  }
+  ui['force3d-status'].textContent = 'd3-force-3d 正在松弛';
+  graph.cooldownTicks(24).cooldownTime(2200).d3ReheatSimulation();
+  updateGraphState();
+}
+
+function pinForceReferenceShape() {
+  const graph = ensureForceGraph();
+  forcePinned = true;
+  for (const node of forceNodes) {
+    node.x = node.fx = node.rx;
+    node.y = node.fy = node.ry;
+    node.z = node.fz = node.rz;
+    node.vx = node.vy = node.vz = 0;
+  }
+  ui['force3d-status'].textContent = '正在恢复参考坐标';
+  graph.cooldownTicks(1).cooldownTime(1200).d3ReheatSimulation();
+  syncForceMarkerPositions();
+  updateGraphState();
 }
 
 function nodePosition(id, target = new THREE.Vector3()) {
@@ -513,11 +717,15 @@ function updateGraphState() {
   if (historyLines) graphGroup.add(historyLines);
   pathLines = makePath(routePath, isDarkTheme() ? 0xffffff : 0x27302b, 1, true);
   if (pathLines) graphGroup.add(pathLines);
+  syncForceMarkerPositions();
   if (graphMode === 'overview') {
     ui['explored-count'].textContent = graphData.states.length.toLocaleString();
-    ui['graph-summary'].textContent = '全览图 · 当前 #' + current + ' · ' + graphData.states.length.toLocaleString() + ' 个节点 · ' + edgePairs.length.toLocaleString() + ' 条连接';
+    ui['graph-summary'].textContent = '参考全览 · 当前 #' + current + ' · ' + graphData.states.length.toLocaleString() + ' 个节点 · ' + edgePairs.length.toLocaleString() + ' 条连接';
+  } else if (graphMode === 'force') {
+    ui['explored-count'].textContent = graphData.states.length.toLocaleString();
+    ui['graph-summary'].textContent = '3d-force-graph · 当前 #' + current + ' · ' + (forcePinned ? '参考坐标固定' : 'd3-force-3d 有限松弛') + ' · ' + edgePairs.length.toLocaleString() + ' 条连接';
   }
-  ui['zoom-label'].textContent = Math.round(camera.position.distanceTo(controls.target)) + 'u';
+  ui['zoom-label'].textContent = Math.round(graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target)) + 'u';
 }
 
 function shortestPath(start, target) {
@@ -585,21 +793,66 @@ async function animateSelectedRoute() {
   if (graphData.states[current].goal && shownGoal !== current) { shownGoal = current; showCompletion(graphData.states[current]); }
 }
 function locateCurrent() {
+  if (graphMode === 'force') {
+    const graph = ensureForceGraph();
+    const node = forceNodePosition(current);
+    if (!node) return;
+    const cameraPosition = graph.cameraPosition();
+    const target = graph.controls().target || { x: 0, y: 0, z: 0 };
+    let dx = cameraPosition.x - target.x, dy = cameraPosition.y - target.y, dz = cameraPosition.z - target.z;
+    let length = Math.hypot(dx, dy, dz);
+    if (!length) { dx = 1; dy = 0.6; dz = 1; length = Math.hypot(dx, dy, dz); }
+    const distance = 80;
+    graph.cameraPosition(
+      { x: node.x + dx / length * distance, y: node.y + dy / length * distance, z: node.z + dz / length * distance },
+      { x: node.x, y: node.y, z: node.z },
+      650
+    );
+    return;
+  }
   const target = nodePosition(current, new THREE.Vector3());
   const direction = camera.position.clone().sub(controls.target).normalize();
   controls.target.copy(target); camera.position.copy(target).add(direction.multiplyScalar(16)); controls.update();
 }
 function setGraphMode(mode, refit = true) {
+  if (!['overview', 'force', 'explore'].includes(mode)) return;
+  const previousMode = graphMode;
+  if (previousMode === 'force' && mode !== 'force' && forceGraph) forceGraph.pauseAnimation();
   graphMode = mode;
   overviewGroup.visible = mode === 'overview'; exploreGroup.visible = mode === 'explore';
-  pointCloud = mode === 'overview' ? overviewPoints : explorePoints;
+  pointCloud = mode === 'overview' ? overviewPoints : mode === 'explore' ? explorePoints : null;
+  ui.graph.hidden = mode === 'force';
+  ui['graph-force'].hidden = mode !== 'force';
+  ui['force3d-actions'].hidden = mode !== 'force';
+  ui['graph-wrap'].dataset.mode = mode;
+  ui['force-settings-toggle'].hidden = mode !== 'explore';
+  if (mode !== 'explore') ui['force-settings'].hidden = true;
   document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === mode));
-  ui['graph-count-label'].textContent = mode === 'overview' ? '完整图节点' : '当前织图节点';
+  ui['graph-count-label'].textContent = mode === 'explore' ? '当前织图节点' : '完整图节点';
   if (mode === 'explore') rebuildExploreGraph();
-  updateGraphState(); if (refit) requestAnimationFrame(fitGraph);
+  updateGraphState();
+  if (mode === 'force') {
+    requestAnimationFrame(() => {
+      try {
+        const graph = ensureForceGraph();
+        graph.resumeAnimation();
+        resizeRenderer();
+        syncForceMarkerPositions();
+        syncForceMarkerScales();
+        if (refit && !forceInitialFit) graph.zoomToFit(700, 48);
+      } catch (error) {
+        ui['force3d-status'].textContent = '3d-force-graph 初始化失败';
+        console.error(error);
+      }
+    });
+  } else if (refit) requestAnimationFrame(fitGraph);
 }
 
 function fitGraph() {
+  if (graphMode === 'force') {
+    ensureForceGraph().zoomToFit(700, 48);
+    return;
+  }
   let center = graphCenter.clone(), size = graphSize;
   if (graphMode === 'explore' && exploreGroup.children.length) {
     const box = new THREE.Box3().setFromObject(exploreGroup);
@@ -617,9 +870,15 @@ function fitGraph() {
 function resizeRenderer() {
   const rect = ui['graph-wrap'].getBoundingClientRect();
   const width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height));
-  const canvas = renderer.domElement;
-  if (canvas.width !== Math.round(width * renderer.getPixelRatio()) || canvas.height !== Math.round(height * renderer.getPixelRatio())) renderer.setSize(width, height, false);
-  camera.aspect = width / height; camera.updateProjectionMatrix();
+  if (graphMode !== 'force') {
+    const canvas = renderer.domElement;
+    if (canvas.width !== Math.round(width * renderer.getPixelRatio()) || canvas.height !== Math.round(height * renderer.getPixelRatio())) renderer.setSize(width, height, false);
+    camera.aspect = width / height; camera.updateProjectionMatrix();
+  }
+  if (graphMode === 'force' && forceGraph && (forceWidth !== width || forceHeight !== height)) {
+    forceWidth = width; forceHeight = height;
+    forceGraph.width(width).height(height);
+  }
 }
 function updateMarkerScales() {
   const height = Math.max(1, renderer.domElement.clientHeight);
@@ -631,7 +890,13 @@ function updateMarkerScales() {
   }
 }
 function animate(now = performance.now()) {
-  requestAnimationFrame(animate); resizeRenderer(); controls.update();
+  requestAnimationFrame(animate); resizeRenderer();
+  if (graphMode === 'force') {
+    syncForceMarkerScales();
+    ui['zoom-label'].textContent = Math.round(forceCameraDistance()) + 'u';
+    return;
+  }
+  controls.update();
   if (graphMode === 'explore') updateExploreForce(now);
   updateMarkerScales(); renderer.render(scene, camera);
 }
@@ -664,6 +929,13 @@ renderer.domElement.addEventListener('pointermove', event => {
   }
 });
 renderer.domElement.addEventListener('pointerleave', () => ui['node-tooltip'].classList.remove('visible'));
+ui['graph-force']?.addEventListener('pointermove', event => {
+  const rect = ui['graph-wrap'].getBoundingClientRect();
+  forcePointer.x = event.clientX - rect.left;
+  forcePointer.y = event.clientY - rect.top;
+  if (forceHoveredNode) updateForceTooltip(forceHoveredNode);
+});
+ui['graph-force']?.addEventListener('pointerleave', () => updateForceTooltip(null));
 
 function formatForceValue(key, value) {
   return key === 'nodeSize' || key === 'repulsion' ? String(value) : Number(value).toFixed(2);
@@ -700,10 +972,26 @@ function bindForceSettings() {
   syncForceSettings();
 }
 bindForceSettings();
+function zoomGraphBy(factor) {
+  if (graphMode === 'force') {
+    const graph = ensureForceGraph();
+    const position = graph.cameraPosition();
+    const target = graph.controls().target || { x: 0, y: 0, z: 0 };
+    graph.cameraPosition({
+      x: target.x + (position.x - target.x) * factor,
+      y: target.y + (position.y - target.y) * factor,
+      z: target.z + (position.z - target.z) * factor
+    }, { x: target.x, y: target.y, z: target.z }, 240);
+    return;
+  }
+  camera.position.sub(controls.target).multiplyScalar(factor).add(controls.target); controls.update();
+}
 document.getElementById('fit').onclick = fitGraph;
 document.getElementById('locate-current').onclick = locateCurrent;
-document.getElementById('zoom-in').onclick = () => { camera.position.sub(controls.target).multiplyScalar(0.48).add(controls.target); controls.update(); };
-document.getElementById('zoom-out').onclick = () => { camera.position.sub(controls.target).multiplyScalar(1.7).add(controls.target); controls.update(); };
+document.getElementById('zoom-in').onclick = () => zoomGraphBy(0.62);
+document.getElementById('zoom-out').onclick = () => zoomGraphBy(1.55);
+ui['force3d-reheat'].onclick = releaseAndReheatForceGraph;
+ui['force3d-pin'].onclick = pinForceReferenceShape;
 document.getElementById('pick-start').onclick = () => { selectionMode = 'start'; routeStartPinned = true; syncRouteControls(); };
 document.getElementById('pick-end').onclick = () => { selectionMode = 'end'; syncRouteControls(); };
 document.getElementById('route-play').onclick = animateSelectedRoute;
@@ -859,8 +1147,25 @@ if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
   selectStart: id => { selectionMode = 'start'; routeStartPinned = true; return selectRouteNode(id); },
   selectEnd: id => { selectionMode = 'end'; return selectRouteNode(id); },
   locateCurrent,
+  reheatForce: releaseAndReheatForceGraph,
+  pinForce: pinForceReferenceShape,
+  forceScreen: id => {
+    const node = forceNodePosition(id);
+    if (!forceGraph || !node) return null;
+    const point = forceGraph.graph2ScreenCoords(node.x, node.y, node.z);
+    const rect = ui['graph-force'].getBoundingClientRect();
+    return { x: rect.left + point.x, y: rect.top + point.y };
+  },
   stop: cancelAnimation,
-  state: () => ({ current, graphMode, routeStart, routeEnd, routeLength: routePath.length, explored: exploredNodes.size, shown: exploreNodeIds.length, isAnimating, cameraDistance: camera.position.distanceTo(controls.target), pointSize: pointCloud?.material.size, sizeAttenuation: pointCloud?.material.sizeAttenuation, markerScale: currentMarker?.scale.x })
+  state: () => ({
+    current, graphMode, routeStart, routeEnd, routeLength: routePath.length,
+    explored: exploredNodes.size, shown: exploreNodeIds.length, isAnimating,
+    cameraDistance: graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target),
+    pointSize: pointCloud?.material.size, sizeAttenuation: pointCloud?.material.sizeAttenuation,
+    markerScale: graphMode === 'force' ? forceCurrentMarker?.scale.x : currentMarker?.scale.x,
+    forceReady: Boolean(forceGraph), forcePinned, forceNodeCount: forceNodes.length, forceLinkCount: forceLinks.length
+  })
 };
 new ResizeObserver(resizeRenderer).observe(ui['graph-wrap']);
+window.addEventListener('beforeunload', () => forceGraph?._destructor());
 loadGraph().catch(error => { ui.loading.innerHTML = '<strong>三维图载入失败，请刷新页面</strong>'; console.error(error); });

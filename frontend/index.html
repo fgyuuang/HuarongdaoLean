@@ -54,7 +54,7 @@
 
     <section class="graph-panel">
       <div class="graph-toolbar">
-        <div class="view-tabs"><button class="active" data-mode="overview">全览模式</button><button data-mode="explore">探索模式 · 力导向</button></div>
+        <div class="view-tabs"><button class="active" data-mode="overview">参考全览</button><button data-mode="force">3D 力导向</button><button data-mode="explore">局部探索</button></div>
         <div class="route-tools">
           <button id="locate-current" class="tool-icon" title="快速定位当前状态">⌖</button>
           <button id="pick-start" class="route-pick" title="点击后在图中选择固定起点"><span>固定起点</span><b id="route-start-id">#0</b></button>
@@ -77,7 +77,13 @@
        </div>
        <div id="graph-wrap" class="graph-wrap">
         <canvas id="graph" class="keyboard-surface" tabindex="0" aria-label="状态图。方向键沿合法边前进，WASD选择已开拓节点"></canvas>
+        <div id="graph-force" class="force-graph-surface keyboard-surface" tabindex="0" aria-label="由 3d-force-graph 绘制的完整状态图。拖动旋转，滚轮缩放，点击选择路径端点" hidden></div>
         <div id="node-tooltip" class="node-tooltip"></div>
+        <div id="force3d-actions" class="force3d-actions" hidden>
+          <button id="force3d-reheat" type="button" title="释放参考坐标并重新运行 d3-force-3d">释放并重新加热</button>
+          <button id="force3d-pin" type="button" title="恢复并固定上游预计算参考坐标">固定参考形状</button>
+          <span id="force3d-status">参考坐标已固定</span>
+        </div>
         <div id="loading" class="loading"><span></span><strong>载入 25,955 个状态节点</strong></div>
         <div class="legend"><span><i class="initial"></i>路径起点</span><span><i class="current"></i>当前状态</span><span><i class="goal"></i>路径终点</span><span><i class="frontier"></i>合法路径</span></div>
         <div class="zoom-controls"><button id="zoom-in" title="放大">+</button><button id="zoom-out" title="缩小">−</button></div>
@@ -98,7 +104,7 @@
   <main id="laboratory" class="laboratory" hidden>
     <aside class="lab-editor">
       <header><span class="eyebrow">GENERIC SLIDING PUZZLE</span><h1>关卡规格</h1><p>编号矩形块 · 单格滑动 · 指定位置目标</p></header>
-      <section class="lab-board-settings"><h2>棋盘</h2><label>宽度<input id="lab-width" type="number" min="1" max="16" value="3"></label><label>高度<input id="lab-height" type="number" min="1" max="16" value="2"></label></section>
+      <section class="lab-board-settings"><h2>棋盘</h2><label>宽度<input id="lab-width" type="number" min="1" max="16" value="3"></label><label>高度<input id="lab-height" type="number" min="1" max="16" value="2"></label><p>也可使用棋盘旁的 Excel 式 ＋ / − 调整列和行；删除前会检查边界是否有木块。</p></section>
       <section class="lab-presets"><button data-lab-preset="tiny" class="active">3×2 入门</button><button data-lab-preset="gate">4×4 让路</button><button data-lab-preset="classic">经典横刀立马</button><button data-lab-preset="custom">清空</button></section>
       <section class="lab-blocks"><div class="lab-section-heading"><h2>编号木块</h2><button id="lab-add-piece" title="添加木块">＋</button></div><div class="lab-table-head"><span>编号</span><span>尺寸</span><span>初始 x,y</span><span>目标约束 / x,y</span><span></span></div><div id="lab-piece-list"></div></section>
       <section class="lab-search-method"><h2>搜索方法</h2><div><button data-lab-strategy="astar" class="active">A* 快速求解</button><button data-lab-strategy="bfs">BFS 图枚举</button></div><p id="lab-strategy-note">启发式搜索找到目标后停止；返回可验证的搜索子图。</p></section><section class="lab-limits"><h2>搜索上限</h2><label>最大状态<input id="lab-max-states" type="number" min="1" max="2000000" step="1" value="100000"></label><label>最大深度<input id="lab-max-depth" type="number" min="0" max="10000" step="1" value="500"></label><label>等待秒数<input id="lab-timeout-seconds" type="number" min="1" max="600" step="1" value="120"></label></section>
@@ -107,9 +113,9 @@
     <section class="lab-main">
       <div class="lab-heading"><div><span class="eyebrow">PUZZLE LABORATORY</span><h1>通用有限滑块探索</h1></div><div id="lab-status" class="lab-status idle"><i></i><span>等待验证</span></div></div>
       <div class="lab-boards">
-        <article><header><div><small>INITIAL STATE · DRAG TO EDIT</small><h2>给定初态</h2></div><code id="lab-initial-type">ValidState spec initial</code></header><div id="lab-initial-board" class="lab-board editable resizable-board" title="拖动编号块；拖动右下角外框手柄改变棋盘宽高"></div></article>
+        <article><header><div><small>INITIAL STATE · DRAG TO EDIT</small><h2>给定初态</h2></div><code id="lab-initial-type">ValidState spec initial</code></header><div class="lab-board-shell"><div id="lab-initial-board" class="lab-board editable" title="拖动编号块设置初始位置"></div><div class="lab-col-controls"><button data-board-dimension="width" data-board-delta="1" title="增加一列">＋</button><button data-board-dimension="width" data-board-delta="-1" title="删除一列">−</button></div><div class="lab-row-controls"><button data-board-dimension="height" data-board-delta="1" title="增加一行">＋</button><button data-board-dimension="height" data-board-delta="-1" title="删除一行">−</button></div></div></article>
         <div class="lab-board-arrow">→</div>
-        <article><header><div><small>GOAL CONSTRAINTS · DRAG TO EDIT</small><h2>目标约束</h2></div><code id="lab-goal-type">goalMatches spec target</code></header><div id="lab-goal-board" class="lab-board goal-board editable resizable-board" title="勾选目标约束后拖动；右下角手柄改变棋盘宽高"></div></article>
+        <article><header><div><small>GOAL CONSTRAINTS · DRAG TO EDIT</small><h2>目标约束</h2></div><code id="lab-goal-type">goalMatches spec target</code></header><div class="lab-board-shell"><div id="lab-goal-board" class="lab-board goal-board editable" title="勾选目标约束后拖动目标块"></div><div class="lab-col-controls"><button data-board-dimension="width" data-board-delta="1" title="增加一列">＋</button><button data-board-dimension="width" data-board-delta="-1" title="删除一列">−</button></div><div class="lab-row-controls"><button data-board-dimension="height" data-board-delta="1" title="增加一行">＋</button><button data-board-dimension="height" data-board-delta="-1" title="删除一行">−</button></div></div></article>
       </div>
       <section class="lab-proof-chain">
         <div id="lab-proof-spec"><b>1</b><span>关卡成立</span><code>wellFormed spec = true</code></div><i>→</i>
@@ -124,10 +130,10 @@
           <div class="lab-solution-grid"><article class="lab-play-panel"><header><div><h2>手动探索 / 解路径</h2><small id="lab-play-mode">当前图节点</small></div><div><button id="lab-prev" title="撤回一步">↶</button><span id="lab-step-label">节点 #0</span><button id="lab-next" title="沿求解路径前进一步">→</button></div></header><div id="lab-play-board" class="lab-board play-board interactive" tabindex="0"></div><div class="lab-play-commands"><button id="lab-play-reset">复位</button><button id="lab-play-hint">提示一步</button><div class="lab-direction-pad"><button data-lab-move="up">↑</button><button data-lab-move="left">←</button><button data-lab-move="down">↓</button><button data-lab-move="right">→</button></div></div></article><article class="lab-proof-output"><header><h2>Lean 证明见证</h2><span id="lab-proof-badge">未验证</span></header><pre><code id="lab-proof-code"></code></pre></article></div>
           <div id="lab-actions" class="lab-actions"></div>
           <section class="lab-graph-explorer">
-            <header><div><small>LEAN STATE GRAPH · THREE.JS</small><h2>自定义关卡状态图</h2></div><div class="lab-graph-controls"><button data-lab-graph-mode="overview" class="active">全览模式</button><button data-lab-graph-mode="explore">探索模式</button><button id="lab-graph-locate" title="定位当前节点">⌖</button><button id="lab-graph-home" title="回到初态">⌂</button></div></header>
+            <header><div><small>LEAN STATE GRAPH · 4D STRUCTURAL LAYOUT</small><h2>自定义关卡状态图</h2></div><div class="lab-graph-controls"><button data-lab-graph-mode="overview" class="active">结构全览</button><button data-lab-graph-mode="force">3D 松弛</button><button data-lab-graph-mode="explore">局部探索</button><button id="lab-layout-recompute" class="lab-layout-action" title="重新计算确定性的四维结构布局">⟳</button><button id="lab-force-reheat" class="lab-force-action" title="释放结构坐标并重新运行三维力导向" hidden>重新加热</button><button id="lab-force-pin" class="lab-force-action" title="恢复并固定四维压缩得到的结构坐标" hidden>恢复结构</button><button id="lab-graph-locate" title="定位当前节点">⌖</button><button id="lab-graph-home" title="回到初态">⌂</button></div></header>
             <div class="lab-graph-route"><button id="lab-route-start"><span>固定起点</span><b id="lab-route-start-id">#0</b></button><i>→</i><button id="lab-route-end" class="active"><span>选择终点</span><b id="lab-route-end-id">未选择</b></button><button id="lab-route-play" title="沿 Lean 合法边播放路径" disabled>▶</button></div>
             <div class="lab-graph-meta"><span>当前节点 <b id="lab-graph-node">#0</b></span><span>距离 <b id="lab-graph-distance">0</b></span><span>合法后继 <b id="lab-graph-degree">0</b></span><span id="lab-graph-complete">等待图数据</span></div>
-            <div class="lab-graph-stage"><canvas id="lab-graph-canvas" tabindex="0" aria-label="三维自定义关卡状态图；拖动旋转，滚轮缩放，点击选择路径端点"></canvas><div id="lab-graph-tip" class="lab-graph-tip"></div><div class="lab-graph-legend"><span><i class="initial"></i>起点</span><span><i class="current"></i>当前</span><span><i class="goal"></i>目标</span><span><i class="route"></i>合法路径</span></div><div class="lab-graph-zoom"><button id="lab-graph-zoom-in">＋</button><button id="lab-graph-zoom-out">−</button></div></div>
+            <div class="lab-graph-stage"><canvas id="lab-graph-canvas" tabindex="0" aria-label="三维自定义关卡状态图；拖动旋转，滚轮缩放，点击选择路径端点"></canvas><div id="lab-graph-force" tabindex="0" aria-label="3d-force-graph 自定义关卡状态图；拖动旋转，滚轮缩放，点击选择路径端点" hidden></div><div id="lab-graph-tip" class="lab-graph-tip"></div><div class="lab-graph-legend"><span><i class="distance"></i>距初态</span><span><i class="initial"></i>起点</span><span><i class="current"></i>当前</span><span><i class="goal"></i>目标</span><span><i class="route"></i>合法路径</span></div><div class="lab-graph-zoom"><button id="lab-graph-zoom-in">＋</button><button id="lab-graph-zoom-out">−</button></div></div>
             <footer><span id="lab-graph-summary">等待 Lean 状态图</span><strong id="lab-graph-zoom">100%</strong></footer>
             <div class="lab-graph-proof"><code id="lab-graph-claim">GraphPath spec graph state0 state0</code><span id="lab-graph-proof-text">GraphPath.nil state0 ⇒ Reachable spec state0 state0</span></div>
           </section>
@@ -159,6 +165,7 @@
     <div class="result-actions"><button id="result-close">查看终局</button><button id="result-reset" class="primary">重新开始</button></div>
   </dialog>
 
+  <script src="vendor/3d-force-graph.min.js"></script>
   <script type="module" src="app.js"></script>
   <script type="module" src="laboratory.js"></script>
 </body>

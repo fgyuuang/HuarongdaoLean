@@ -31,6 +31,8 @@ const presets = {
 let pieces = [], solution = null, resultData = null, playStep = 0, busy = false, searchStrategy = 'astar', playSelectedBlock = null;
 let genericGraph = null, genericOutgoing = [], graphCurrent = 0, graphHistory = [0], graphHistoryEdges = [], graphMode = 'overview';
 let graphLayout = [], graphExploreLayout = new Map(), graphVisibleIds = [], graphRouteStart = 0, graphRouteEnd = null, graphRouteEdges = [], graphSelectionMode = 'end', graphRoutePinned = false, graphAnimationToken = 0;
+let labForceGraph = null, labForceNodes = [], labForceLinks = [], labForcePinned = false, labForceNeedsFit = false, labForceWidth = 0, labForceHeight = 0, labForceHighlightedLinks = new Set();
+let structuralLayoutWorker = null, structuralLayoutRequest = 0, structuralLayoutReady = false, structuralLayoutMeta = null;
 const labGraphScene = new THREE.Scene(), labGraphCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 3000);
 const labGraphRenderer = new THREE.WebGLRenderer({ canvas: $('lab-graph-canvas'), antialias: true, preserveDrawingBuffer: true });
 labGraphRenderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2)); labGraphRenderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -154,6 +156,22 @@ function addPieceFromCell(x, y, kind) {
   pieces.push({id:pieces.length+1,width:1,height:1,x:initial.x,y:initial.y,goalX:kind==='goal'?x:null,goalY:kind==='goal'?y:null}); clearResult(); renderAll();
 }
 
+function canShrinkBoard(dimension) {
+  const {width,height}=boardDimensions();
+  return pieces.every(piece => {
+    const xMax=piece.x+piece.width, yMax=piece.y+piece.height;
+    const gx=piece.goalX == null ? 0 : piece.goalX+piece.width, gy=piece.goalY == null ? 0 : piece.goalY+piece.height;
+    return dimension==='width' ? xMax <= width-1 && (piece.goalX == null || gx <= width-1) : yMax <= height-1 && (piece.goalY == null || gy <= height-1);
+  });
+}
+function changeBoardDimension(dimension, delta) {
+  const input=dimension==='width' ? $('lab-width') : $('lab-height'), current=Number(input.value), next=current+delta, max=16;
+  if(next<1||next>max)return;
+  if(delta<0&&!canShrinkBoard(dimension)){setStatus('invalid',dimension==='width'?'不能删除这一列：有木块或目标约束在边界上':'不能删除这一行：有木块或目标约束在边界上');return;}
+  input.value=next;clearResult();renderBoards();
+}
+document.querySelectorAll('[data-board-dimension]').forEach(button=>button.onclick=()=>changeBoardDimension(button.dataset.boardDimension,Number(button.dataset.boardDelta)));
+
 function enableBoardResize(element) {
   const handle=document.createElement('button');handle.type='button';handle.className='lab-board-resize-handle';handle.title='拖动改变棋盘列数和行数';handle.textContent='↘';
   handle.onpointerdown=event=>{
@@ -182,7 +200,7 @@ function renderBoard(element, positions, goal = false, editableKind = null) {
     const add=document.createElement('button');add.type='button';add.className='lab-add-cell';add.textContent='+';add.title='在 ('+x+','+y+') 添加 1×1 编号块';
     Object.assign(add.style,{left:x/width*100+'%',top:y/height*100+'%',width:100/width+'%',height:100/height+'%'});add.onclick=()=>addPieceFromCell(x,y,editableKind);element.append(add);
   }
-  if(editableKind)enableBoardResize(element);
+
 }
 function initialPositions() { return pieces.map(piece => ({ x: piece.x, y: piece.y })); }
 function goalPositions() { return pieces.map(piece => piece.goalX == null ? null : ({ x: piece.goalX, y: piece.goalY })); }
@@ -202,7 +220,7 @@ function payload(validateOnly = false) {
 function setStatus(kind, text) { const status = $('lab-status'); status.className = 'lab-status ' + kind; status.querySelector('span').textContent = text; }
 function setChain(stage, state) { $('lab-proof-' + stage).className = state; }
 function clearResult() {
-  solution = null; resultData = null; genericGraph = null; genericOutgoing = []; graphCurrent = 0; graphHistory = [0]; graphHistoryEdges = []; playStep = 0; playSelectedBlock = null; $('lab-result').className = 'lab-result empty'; $('lab-result').querySelector('.lab-empty').hidden = false; $('lab-result').querySelector('.lab-result-content').hidden = true;
+  stopStructuralLayout(); disposeLabForceGraph(); solution = null; resultData = null; genericGraph = null; genericOutgoing = []; graphCurrent = 0; graphHistory = [0]; graphHistoryEdges = []; playStep = 0; playSelectedBlock = null; $('lab-result').className = 'lab-result empty'; $('lab-result').querySelector('.lab-empty').hidden = false; $('lab-result').querySelector('.lab-result-content').hidden = true;
   setStatus('idle', '规格已修改'); ['spec','search','check','exists'].forEach(stage => setChain(stage, ''));
 }
 async function callSolver(validateOnly) {
@@ -235,7 +253,7 @@ function showResult(data, validateOnly) {
     data.status === 'solved' ? (data.stats.algorithm === 'astar' ? 'A* 已找到并验证解' : 'BFS 已找到并验证解') : data.status === 'unreachable' ? '完整状态图中不可达' : data.status === 'limit' ? '达到搜索上限，结论未知' : '关卡定义无效');
   const result = $('lab-result'); result.className = 'lab-result ' + data.status; result.querySelector('.lab-empty').hidden = true; result.querySelector('.lab-result-content').hidden = false;
   $('lab-visited').textContent = data.stats.visitedStates.toLocaleString(); $('lab-expanded').textContent = data.stats.expandedStates.toLocaleString(); $('lab-generated').textContent = data.stats.generatedTransitions.toLocaleString(); $('lab-length').textContent = data.stats.shortestLength ?? '—'; $('lab-difficulty').textContent = difficulty(data.stats); $('lab-algorithm').textContent = data.stats.algorithm === 'astar' ? 'A*' : 'BFS';
-  solution = data.solution; resultData = data; genericGraph = data.graph; genericOutgoing = []; graphCurrent = 0; graphHistory = [0]; graphHistoryEdges = []; playStep = 0; renderSolution(data); initializeGenericGraph();
+  disposeLabForceGraph(); solution = data.solution; resultData = data; genericGraph = data.graph; genericOutgoing = []; graphCurrent = 0; graphHistory = [0]; graphHistoryEdges = []; playStep = 0; renderSolution(data); initializeGenericGraph();
 }
 function renderSolution(data) {
   const verified = data.proof?.verified === true; $('lab-proof-badge').textContent = verified ? 'Lean 已重放验证' : '未验证'; $('lab-proof-badge').className = verified ? 'verified' : '';
@@ -296,6 +314,205 @@ function computeGraphLayout() {
   for (const layer of layers.values()) layer.forEach((node,index)=>layerIndex.set(node.id,index));
   return genericGraph.nodes.map(node => { const index=layerIndex.get(node.id), radius=Math.sqrt(index)*.72; return new THREE.Vector3((node.distance-maxDepth/2)*1.8,Math.cos(index*golden)*radius,Math.sin(index*golden)*radius); });
 }
+function structuralPhaseLabel(phase){
+  return {'4D spread':'四维展开','4D -> 3D':'第四维压缩','3D projection':'三维投影'}[phase]||phase;
+}
+function structuralLayoutLabel(){
+  if(!structuralLayoutReady)return '临时 BFS 生长种子';
+  const meta=structuralLayoutMeta||{},mirror=[];
+  if(meta.mirrorXPairs)mirror.push('横镜像 '+meta.mirrorXPairs);
+  if(meta.mirrorYPairs)mirror.push('纵镜像 '+meta.mirrorYPairs);
+  return '确定性 4D→3D 结构坐标'+(mirror.length?' · '+mirror.join(' / '):'');
+}
+function stopStructuralLayout(){
+  structuralLayoutRequest++;
+  structuralLayoutWorker?.terminate();
+  structuralLayoutWorker=null;structuralLayoutReady=false;structuralLayoutMeta=null;
+  const button=$('lab-layout-recompute');
+  if(button){button.disabled=false;button.classList.remove('running');}
+}
+function startStructuralLayout(){
+  if(!genericGraph)return;
+  structuralLayoutWorker?.terminate();
+  const request=++structuralLayoutRequest;
+  structuralLayoutReady=false;structuralLayoutMeta=null;
+  const button=$('lab-layout-recompute');
+  button.disabled=true;button.classList.add('running');
+  $('lab-graph-summary').textContent='正在构造四维结构布局 · 地标距离与镜像配对';
+  const worker=new Worker(new URL('./structural-layout-worker.js',import.meta.url),{type:'module'});
+  structuralLayoutWorker=worker;
+  worker.onmessage=event=>{
+    if(request!==structuralLayoutRequest||worker!==structuralLayoutWorker)return;
+    if(event.data.type==='progress'){
+      const detail=event.data.detail,percent=Math.round(detail.ratio*100);
+      $('lab-graph-summary').textContent='四维结构布局 '+percent+'% · '+structuralPhaseLabel(detail.phase);
+      return;
+    }
+    if(event.data.type==='error'){
+      structuralLayoutWorker=null;button.disabled=false;button.classList.remove('running');
+      $('lab-graph-summary').textContent='结构布局失败，保留 BFS 生长种子 · '+event.data.message;
+      return;
+    }
+    if(event.data.type!=='result')return;
+    const coordinates=new Float32Array(event.data.coordinates);
+    if(coordinates.length!==genericGraph.nodes.length*3){
+      worker.terminate();structuralLayoutWorker=null;button.disabled=false;button.classList.remove('running');
+      $('lab-graph-summary').textContent='结构布局坐标数量不匹配，保留 BFS 生长种子';
+      return;
+    }
+    graphLayout=genericGraph.nodes.map((_,index)=>new THREE.Vector3(
+      coordinates[index*3],coordinates[index*3+1],coordinates[index*3+2]));
+    structuralLayoutMeta=event.data.meta;structuralLayoutReady=true;graphExploreLayout=new Map();
+    worker.terminate();structuralLayoutWorker=null;button.disabled=false;button.classList.remove('running');
+    disposeLabForceGraph();prepareLabForceGraphData();
+    if(graphMode==='force'){ensureLabForceGraph();refreshLabForceGraph(true);}
+    else rebuildGenericGraph(true);
+  };
+  worker.onerror=event=>{
+    if(request!==structuralLayoutRequest)return;
+    structuralLayoutWorker=null;button.disabled=false;button.classList.remove('running');
+    $('lab-graph-summary').textContent='结构布局 Worker 失败，保留 BFS 生长种子 · '+event.message;
+  };
+  worker.postMessage({
+    board:boardDimensions(),
+    shapes:pieces.map(piece=>({width:piece.width,height:piece.height})),
+    nodes:genericGraph.nodes.map(node=>({id:node.id,distance:node.distance,positions:node.positions})),
+    edges:genericGraph.edges.map(edge=>({source:edge.source,target:edge.target}))
+  });
+}
+function labForceEndpointId(endpoint){return Number(typeof endpoint==='object'&&endpoint!==null?endpoint.id:endpoint);}
+function labForceLinkKey(source,target){const a=labForceEndpointId(source),b=labForceEndpointId(target);return Math.min(a,b)+':'+Math.max(a,b);}
+function graphKindLabel(){return genericGraph?.complete?'完整可达图':genericGraph?.truncated?'资源截断子图':'A* 解搜索子图';}
+function graphMaxDistance(){let maximum=1;for(const node of genericGraph?.nodes||[])maximum=Math.max(maximum,node.distance||0);return maximum;}
+function graphDepthColor(distance,maxDistance=graphMaxDistance()){
+  const ratio=Math.max(0,Math.min(1,(distance||0)/Math.max(1,maxDistance)));
+  const color=new THREE.Color();
+  color.setHSL(.6-ratio*.58,.62,document.documentElement.classList.contains('dark')?.61:.4);
+  return color;
+}
+function prepareLabForceGraphData(){
+  if(!genericGraph)return;
+  const scale=Math.max(1.4,Math.min(6,Math.log2(genericGraph.nodes.length+1)/2));
+  labForceNodes=genericGraph.nodes.map((node,id)=>{
+    const base=graphLayout[id],rx=base.x*scale,ry=base.y*scale,rz=base.z*scale;
+    return {...node,rx,ry,rz,x:rx,y:ry,z:rz,fx:rx,fy:ry,fz:rz};
+  });
+  const seen=new Set();labForceLinks=[];
+  for(const edge of genericGraph.edges){
+    if(edge.source===edge.target)continue;
+    const key=labForceLinkKey(edge.source,edge.target);if(seen.has(key))continue;seen.add(key);
+    const a=labForceNodes[edge.source],b=labForceNodes[edge.target],restLength=Math.hypot(a.rx-b.rx,a.ry-b.ry,a.rz-b.rz);
+    labForceLinks.push({source:edge.source,target:edge.target,sourceId:edge.source,targetId:edge.target,restLength:Math.max(.8,Math.min(18,restLength))});
+  }
+}
+function labReferenceAnchorForce(strength=.012){
+  let nodes=[];
+  function force(alpha){const k=strength*alpha;for(const node of nodes){if(node.fx!=null)continue;node.vx+=(node.rx-node.x)*k;node.vy+=(node.ry-node.y)*k;node.vz+=(node.rz-node.z)*k;}}
+  force.initialize=value=>{nodes=value;};return force;
+}
+function labForceNodeColor(node){
+  if(node.id===graphCurrent)return '#9f2d2d';
+  if(node.id===graphRouteStart||node.id===graphRouteEnd)return '#c58d34';
+  if(node.goal)return '#28736d';
+  if(node.id===0)return '#c58d34';
+  return '#'+graphDepthColor(node.distance).getHexString();
+}
+function labForceLinkColor(link){
+  if(labForceHighlightedLinks.has(labForceLinkKey(link.source,link.target)))return '#c58d34';
+  const source=labForceNodes[labForceEndpointId(link.source)],target=labForceNodes[labForceEndpointId(link.target)];
+  return '#'+graphDepthColor(((source?.distance||0)+(target?.distance||0))*.5).getHexString();
+}
+function labForceNodeValue(node){return node.id===graphCurrent?3:node.goal?2.2:node.id===0||node.id===graphRouteStart||node.id===graphRouteEnd?1.8:1;}
+function labForceCameraDistance(){
+  if(!labForceGraph)return 0;const position=labForceGraph.cameraPosition(),target=labForceGraph.controls().target||{x:0,y:0,z:0};
+  return Math.hypot(position.x-target.x,position.y-target.y,position.z-target.z);
+}
+function labForceTickBudget(){
+  const count=genericGraph?.nodes.length||0;return count<500?90:count<2500?60:count<10000?32:16;
+}
+function fitLabForceGraph(duration=650){
+  if(!labForceGraph)return;
+  labForceGraph.zoomToFit(duration,18);
+  setTimeout(()=>{
+    if(!labForceGraph)return;
+    const position=labForceGraph.cameraPosition(),target=labForceGraph.controls().target||{x:0,y:0,z:0};
+    const factor=.66;
+    labForceGraph.cameraPosition({
+      x:target.x+(position.x-target.x)*factor,
+      y:target.y+(position.y-target.y)*factor,
+      z:target.z+(position.z-target.z)*factor
+    },target,260);
+  },duration+40);
+}
+function refreshLabForceGraph(fit=false){
+  if(!genericGraph)return;const graph=ensureLabForceGraph();
+  labForceHighlightedLinks=new Set([...graphHistoryEdges,...graphRouteEdges].map(edge=>labForceLinkKey(edge.source,edge.target)));
+  graph
+    .backgroundColor(document.documentElement.classList.contains('dark')?'#1b1f1c':'#f2f3ef')
+    .nodeColor(labForceNodeColor)
+    .nodeVal(labForceNodeValue)
+    .linkColor(labForceLinkColor)
+    .linkWidth(link=>labForceHighlightedLinks.has(labForceLinkKey(link.source,link.target))?1.4:genericGraph.nodes.length<1500?.28:0)
+    .linkOpacity(genericGraph.nodes.length<1500?.24:.14);
+  $('lab-graph-summary').textContent='3d-force-graph · '+structuralLayoutLabel()+' · '+genericGraph.nodes.length.toLocaleString()+' 节点 · '+labForceLinks.length.toLocaleString()+' 条无向连接 · '+graphKindLabel();
+  if(fit){labForceNeedsFit=true;setTimeout(()=>fitLabForceGraph(),80);}
+}
+function ensureLabForceGraph(){
+  if(labForceGraph)return labForceGraph;
+  if(!window.ForceGraph3D)throw new Error('3d-force-graph runtime unavailable');
+  if(!labForceNodes.length)prepareLabForceGraphData();
+  const container=$('lab-graph-force'),rect=container.getBoundingClientRect(),count=labForceNodes.length;
+  labForceGraph=new window.ForceGraph3D(container,{controlType:'orbit',rendererConfig:{antialias:count<5000,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'}})
+    .width(Math.max(1,Math.round(rect.width)))
+    .height(Math.max(1,Math.round(rect.height)))
+    .backgroundColor(document.documentElement.classList.contains('dark')?'#1b1f1c':'#f2f3ef')
+    .showNavInfo(false)
+    .nodeId('id')
+    .nodeRelSize(count>10000?.28:count>2500?.42:count>500?.68:1)
+    .nodeResolution(3)
+    .nodeColor(labForceNodeColor)
+    .nodeVal(labForceNodeValue)
+    .nodeOpacity(count>10000?.45:count>2500?.58:.82)
+    .nodeLabel(node=>'#'+node.id+' · d='+node.distance+(node.goal?' · GOAL':''))
+    .linkColor(labForceLinkColor)
+    .linkOpacity(count<1500?.24:.14)
+    .linkWidth(0)
+    .linkDirectionalParticles(0)
+    .linkHoverPrecision(0)
+    .enableNodeDrag(count<5000)
+    .enablePointerInteraction(true)
+    .warmupTicks(0)
+    .cooldownTicks(labForceTickBudget())
+    .cooldownTime(5000)
+    .d3AlphaMin(.02)
+    .d3AlphaDecay(count>10000?.24:.12)
+    .d3VelocityDecay(.58)
+    .onNodeClick(node=>selectGraphNode(Number(node.id)))
+    .onEngineStop(()=>{if(labForceNeedsFit){labForceNeedsFit=false;requestAnimationFrame(()=>fitLabForceGraph());}$('lab-graph-summary').textContent='3d-force-graph · '+(labForcePinned?'结构坐标已固定':'局部松弛已冷却')+' · '+genericGraph.nodes.length.toLocaleString()+' 节点 · '+graphKindLabel();})
+    .graphData({nodes:labForceNodes,links:labForceLinks});
+  const linkForce=labForceGraph.d3Force('link');linkForce?.distance(link=>link.restLength).strength(count>10000?.015:.045).iterations(1);
+  const chargeForce=labForceGraph.d3Force('charge');chargeForce?.strength(count<500?-10:count<5000?-3:-.7).distanceMax(count<5000?90:48).theta(1.25);
+  labForceGraph.d3Force('reference-anchor',labReferenceAnchorForce(count>10000?.02:.012));
+  labForceGraph.renderer().setPixelRatio(Math.min(window.devicePixelRatio||1,count>10000?1:1.5));
+  labForceWidth=Math.max(1,Math.round(rect.width));labForceHeight=Math.max(1,Math.round(rect.height));labForcePinned=true;
+  return labForceGraph;
+}
+function releaseAndReheatLabForceGraph(){
+  const graph=ensureLabForceGraph();labForcePinned=false;
+  for(const node of labForceNodes){node.fx=null;node.fy=null;node.fz=null;}
+  graph.cooldownTicks(labForceTickBudget()).cooldownTime(5000).d3ReheatSimulation();
+  $('lab-graph-summary').textContent='3d-force-graph · 从四维结构坐标释放并进行本地有限松弛 · '+genericGraph.nodes.length.toLocaleString()+' 节点';
+}
+function restoreLabForceInitialLayout(){
+  const graph=ensureLabForceGraph();labForcePinned=true;
+  for(const node of labForceNodes){node.x=node.fx=node.rx;node.y=node.fy=node.ry;node.z=node.fz=node.rz;node.vx=node.vy=node.vz=0;}
+  graph.cooldownTicks(1).cooldownTime(800).d3ReheatSimulation();refreshLabForceGraph(true);
+}
+function disposeLabForceGraph(){
+  if(labForceGraph){labForceGraph.pauseAnimation?.();labForceGraph.graphData({nodes:[],links:[]});labForceGraph._destructor?.();}
+  labForceGraph=null;labForceNodes=[];labForceLinks=[];labForceHighlightedLinks=new Set();labForcePinned=false;labForceNeedsFit=false;labForceWidth=0;labForceHeight=0;
+  $('lab-graph-force')?.replaceChildren();
+}
 function graphVisibleSet() {
   if (graphMode === 'overview') return new Set(genericGraph.nodes.map(node => node.id));
   const visible=new Set(graphHistory),adjacency=graphAdjacency();for(const id of graphHistory)for(const edge of adjacency[id]||[])visible.add(edge.target);for(const edge of graphRouteEdges){visible.add(edge.source);visible.add(edge.target);}return visible;
@@ -313,16 +530,29 @@ function settleExploreLayout(visible){
 
 function disposeThreeObject(object){object.traverse(child=>{child.geometry?.dispose();if(Array.isArray(child.material))child.material.forEach(material=>material.dispose());else child.material?.dispose();});}
 function addGraphLine(edges,color,opacity){const data=[];for(const edge of edges){const a=graphPosition(edge.source),b=graphPosition(edge.target);if(a&&b)data.push(a.x,a.y,a.z,b.x,b.y,b.z);}if(!data.length)return;const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(data,3));labGraphGroup.add(new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color,transparent:opacity<1,opacity})));}
+function addGraphDepthLines(edges,opacity){
+  const data=[],colors3=[],maxDistance=graphMaxDistance();
+  for(const edge of edges){
+    const a=graphPosition(edge.source),b=graphPosition(edge.target);if(!a||!b)continue;
+    const source=genericGraph.nodes[edge.source],target=genericGraph.nodes[edge.target];
+    const color=graphDepthColor(((source?.distance||0)+(target?.distance||0))*.5,maxDistance);
+    data.push(a.x,a.y,a.z,b.x,b.y,b.z);colors3.push(color.r,color.g,color.b,color.r,color.g,color.b);
+  }
+  if(!data.length)return;
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(data,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors3,3));
+  labGraphGroup.add(new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({vertexColors:true,transparent:opacity<1,opacity})));
+}
 function addGraphMarker(id,color,scale=1){if(id==null||!graphPosition(id))return;const marker=new THREE.Mesh(new THREE.TorusGeometry(.28,.075,8,24),new THREE.MeshBasicMaterial({color,depthTest:false}));marker.position.copy(graphPosition(id));marker.renderOrder=5;marker.userData.pixelDiameter=18*scale;labGraphGroup.add(marker);}
 function rebuildGenericGraph(fit=false){
-  if(!genericGraph)return;while(labGraphGroup.children.length){const child=labGraphGroup.children.pop();disposeThreeObject(child);}const visible=graphVisibleSet();if(graphMode==='explore')settleExploreLayout(visible);graphVisibleIds=graphMode==='overview'?genericGraph.nodes.map(node=>node.id):[...visible].sort((a,b)=>a-b);const positions=[],colors3=[];
-  const discovered=new Set(graphHistory);
-  for(const id of graphVisibleIds){const node=genericGraph.nodes[id],position=graphPosition(id);positions.push(position.x,position.y,position.z);const color=new THREE.Color(node.goal?0x28736d:id===0?0xc58d34:graphMode==='explore'&&!discovered.has(id)?0x65a29a:0x727d77);colors3.push(color.r,color.g,color.b);}
-  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors3,3));labGraphPoints=new THREE.Points(geometry,new THREE.PointsMaterial({size:5,vertexColors:true,sizeAttenuation:false,transparent:true,opacity:.92,depthWrite:false}));labGraphPoints.userData.nodeIds=graphVisibleIds;labGraphGroup.add(labGraphPoints);
+  if(!genericGraph)return;if(graphMode==='force'){refreshLabForceGraph(fit);return;}while(labGraphGroup.children.length){const child=labGraphGroup.children.pop();disposeThreeObject(child);}const visible=graphVisibleSet();if(graphMode==='explore')settleExploreLayout(visible);graphVisibleIds=graphMode==='overview'?genericGraph.nodes.map(node=>node.id):[...visible].sort((a,b)=>a-b);const positions=[],colors3=[];
+  const discovered=new Set(graphHistory),maxDistance=graphMaxDistance();
+  for(const id of graphVisibleIds){const node=genericGraph.nodes[id],position=graphPosition(id);positions.push(position.x,position.y,position.z);const color=new THREE.Color(node.goal?0x28736d:id===0?0xc58d34:graphMode==='explore'&&!discovered.has(id)?0x65a29a:graphDepthColor(node.distance,maxDistance));colors3.push(color.r,color.g,color.b);}
+  const count=graphVisibleIds.length,pointSize=graphMode==='overview'?(count>10000?.65:count>2500?.8:count>500?1.15:2.4):3.5,pointOpacity=graphMode==='overview'?(count>10000?.24:count>2500?.32:count>500?.44:.68):.82;
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors3,3));labGraphPoints=new THREE.Points(geometry,new THREE.PointsMaterial({size:pointSize,vertexColors:true,sizeAttenuation:false,transparent:true,opacity:pointOpacity,depthWrite:false}));labGraphPoints.userData.nodeIds=graphVisibleIds;labGraphGroup.add(labGraphPoints);
   const sourceEdges=graphMode==='overview'?genericGraph.edges:graphVisibleIds.flatMap(id=>graphAdjacency()[id]||[]);
   const seen=new Set(),visibleEdges=sourceEdges.filter(edge=>{if(!visible.has(edge.source)||!visible.has(edge.target))return false;if(graphMode!=='overview')return true;const key=Math.min(edge.source,edge.target)+':'+Math.max(edge.source,edge.target);if(seen.has(key))return false;seen.add(key);return true;});
-  addGraphLine(visibleEdges,0x66716b,.22);addGraphLine(graphHistoryEdges,0xc58d34,.95);addGraphLine(graphRouteEdges,0x27302b,.85);addGraphMarker(graphRouteStart,0xc58d34,.9);addGraphMarker(graphRouteEnd,0x28736d,.9);addGraphMarker(graphCurrent,0xa83934,1.25);
-  labGraphScene.background=new THREE.Color(document.documentElement.classList.contains('dark')?0x1b1f1c:0xf2f3ef);$('lab-graph-summary').textContent=(graphMode==='overview'?'全览图':'探索图')+' · '+graphVisibleIds.length.toLocaleString()+' / '+genericGraph.nodes.length.toLocaleString()+' 节点 · '+genericGraph.edges.length.toLocaleString()+' 条有向边';if(fit)fitGenericGraph();
+  addGraphDepthLines(visibleEdges,graphMode==='overview'?(count>10000?.3:count>2500?.4:.52):.32);addGraphLine(graphHistoryEdges,0xc58d34,.95);addGraphLine(graphRouteEdges,0x27302b,.85);addGraphMarker(graphRouteStart,0xc58d34,.9);addGraphMarker(graphRouteEnd,0x28736d,.9);addGraphMarker(graphCurrent,0xa83934,1.25);
+  labGraphScene.background=new THREE.Color(document.documentElement.classList.contains('dark')?0x1b1f1c:0xf2f3ef);$('lab-graph-summary').textContent=(graphMode==='overview'?'结构全览 · '+structuralLayoutLabel():'局部探索图')+' · '+graphVisibleIds.length.toLocaleString()+' / '+genericGraph.nodes.length.toLocaleString()+' 节点 · '+genericGraph.edges.length.toLocaleString()+' 条有向边 · '+graphKindLabel();if(fit)fitGenericGraph();
 }
 function fitGenericGraph(){if(!genericGraph||!graphVisibleIds.length)return;const box=new THREE.Box3();for(const id of graphVisibleIds)box.expandByPoint(graphPosition(id));const center=box.getCenter(new THREE.Vector3()),size=Math.max(4,box.getSize(new THREE.Vector3()).length());labGraphControls.target.copy(center);labGraphCamera.position.copy(center).add(new THREE.Vector3(size*.65,size*.45,size*.75));labGraphCamera.near=.05;labGraphCamera.far=Math.max(100,size*15);labGraphCamera.updateProjectionMatrix();labGraphControls.update();}
 function shortestGraphRoute(source,target){if(source===target)return[];const adjacency=graphAdjacency(),queue=[source],parent=new Map([[source,null]]),parentEdge=new Map();for(let cursor=0;cursor<queue.length;cursor++){const node=queue[cursor];for(const edge of adjacency[node]||[]){if(parent.has(edge.target))continue;parent.set(edge.target,node);parentEdge.set(edge.target,edge);if(edge.target===target){const path=[];let at=target;while(at!==source){path.push(parentEdge.get(at));at=parent.get(at);}return path.reverse();}queue.push(edge.target);}}return null;}
@@ -331,14 +561,23 @@ function setGraphCurrent(target){const route=shortestGraphRoute(graphCurrent,tar
 function selectGraphNode(id){if(graphSelectionMode==='start'){graphRouteStart=id;graphRouteEnd=null;graphRoutePinned=true;graphSelectionMode='end';$('lab-route-start').classList.remove('active');$('lab-route-end').classList.add('active');}else{if(!graphRoutePinned)graphRouteStart=graphCurrent;graphRouteEnd=id;graphRoutePinned=false;}graphRouteEdges=graphRouteEnd==null?[]:(shortestGraphRoute(graphRouteStart,graphRouteEnd)||[]);$('lab-route-start-id').textContent='#'+graphRouteStart;$('lab-route-end-id').textContent=graphRouteEnd==null?'未选择':'#'+graphRouteEnd;$('lab-route-play').disabled=graphRouteEnd==null;rebuildGenericGraph();}
 async function playGraphRoute(){if(graphRouteEnd==null)return;const token=++graphAnimationToken,toStart=shortestGraphRoute(graphCurrent,graphRouteStart)||[],route=shortestGraphRoute(graphRouteStart,graphRouteEnd)||[];$('lab-route-play').disabled=true;for(const edge of [...toStart,...route]){if(token!==graphAnimationToken)return;applyGraphEdge(edge);await new Promise(resolve=>setTimeout(resolve,220));}$('lab-route-play').disabled=false;}
 function updateGraphReadout(){if(!genericGraph)return;const node=genericGraph.nodes[graphCurrent],adjacency=graphAdjacency();$('lab-graph-node').textContent='#'+graphCurrent;$('lab-graph-distance').textContent=node.distance;$('lab-graph-degree').textContent=(adjacency[graphCurrent]||[]).length;$('lab-graph-complete').textContent=genericGraph.complete?'完整可达图':genericGraph.truncated?'资源截断子图':'A* 解搜索子图';$('lab-graph-complete').className=genericGraph.complete?'complete':genericGraph.truncated?'truncated':'solution-subgraph';$('lab-graph-claim').textContent='GraphPath spec graph state0 state'+graphCurrent;const constructors=graphHistoryEdges.map((edge,index)=>'GraphPath.cons edge'+(index+1)+' checked'+(index+1)).join('  →  ');$('lab-graph-proof-text').textContent=(constructors||'GraphPath.nil state0')+'  ⇒  Reachable spec state0 state'+graphCurrent;}
-function initializeGenericGraph(){if(!genericGraph)return;graphLayout=computeGraphLayout();graphExploreLayout=new Map();if(laboratoryQuery.get('graphMode')==='explore'){graphMode='explore';document.querySelectorAll('[data-lab-graph-mode]').forEach(item=>item.classList.toggle('active',item.dataset.labGraphMode==='explore'));}graphRouteStart=0;graphRouteEnd=null;graphRouteEdges=[];graphRoutePinned=false;renderCurrentPlayBoard();updateGraphReadout();rebuildGenericGraph(true);if(laboratoryQuery.get('autoManual')==='1'){const edge=(graphAdjacency()[0]||[])[0];if(edge){const board=$('lab-play-board'),block=board.querySelector('[data-piece="'+(edge.block-1)+'"]'),rect=block?.getBoundingClientRect(),boardRect=board.getBoundingClientRect(),delta={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[edge.direction];if(block&&rect){const x=rect.left+rect.width/2,y=rect.top+rect.height/2;block.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:x,clientY:y}));block.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:x+delta[0]*boardRect.width/boardDimensions().width*.7,clientY:y+delta[1]*boardRect.height/boardDimensions().height*.7}));document.body.dataset.manualResult=graphCurrent;}}}if(laboratoryQuery.get('autoExplore')==='1'){const target=genericGraph.nodes.find(node=>node.goal)||genericGraph.nodes.at(-1);if(target){selectGraphNode(target.id);playGraphRoute();}$('lab-graph-canvas').scrollIntoView({block:'center'});}}
+function initializeGenericGraph(){if(!genericGraph)return;structuralLayoutReady=false;structuralLayoutMeta=null;graphLayout=computeGraphLayout();graphExploreLayout=new Map();prepareLabForceGraphData();const requestedMode=laboratoryQuery.get('graphMode');if(['overview','force','explore'].includes(requestedMode))graphMode=requestedMode;graphRouteStart=0;graphRouteEnd=null;graphRouteEdges=[];graphRoutePinned=false;renderCurrentPlayBoard();updateGraphReadout();setLabGraphMode(graphMode,true);startStructuralLayout();if(laboratoryQuery.get('autoManual')==='1'){const edge=(graphAdjacency()[0]||[])[0];if(edge){const board=$('lab-play-board'),block=board.querySelector('[data-piece="'+(edge.block-1)+'"]'),rect=block?.getBoundingClientRect(),boardRect=board.getBoundingClientRect(),delta={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[edge.direction];if(block&&rect){const x=rect.left+rect.width/2,y=rect.top+rect.height/2;block.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:x,clientY:y}));block.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:x+delta[0]*boardRect.width/boardDimensions().width*.7,clientY:y+delta[1]*boardRect.height/boardDimensions().height*.7}));document.body.dataset.manualResult=graphCurrent;}}}if(laboratoryQuery.get('autoExplore')==='1'){const target=genericGraph.nodes.find(node=>node.goal)||genericGraph.nodes.at(-1);if(target){selectGraphNode(target.id);playGraphRoute();}$(graphMode==='force'?'lab-graph-force':'lab-graph-canvas').scrollIntoView({block:'center'});}}
 function graphNodeAt(event){if(!labGraphPoints)return null;const rect=labGraphRenderer.domElement.getBoundingClientRect();labGraphPointer.x=(event.clientX-rect.left)/rect.width*2-1;labGraphPointer.y=-(event.clientY-rect.top)/rect.height*2+1;labGraphRaycaster.setFromCamera(labGraphPointer,labGraphCamera);labGraphRaycaster.params.Points.threshold=Math.max(.12,labGraphCamera.position.distanceTo(labGraphControls.target)/120);const hit=labGraphRaycaster.intersectObject(labGraphPoints)[0];return hit?labGraphPoints.userData.nodeIds[hit.index]:null;}
-function focusGraphNode(id){const target=graphPosition(id);if(!target)return;const direction=labGraphCamera.position.clone().sub(labGraphControls.target).normalize();labGraphControls.target.copy(target);labGraphCamera.position.copy(target).add(direction.multiplyScalar(8));labGraphControls.update();}
-document.querySelectorAll('[data-lab-graph-mode]').forEach(button=>button.onclick=()=>{graphMode=button.dataset.labGraphMode;document.querySelectorAll('[data-lab-graph-mode]').forEach(item=>item.classList.toggle('active',item===button));rebuildGenericGraph(true);});
+function focusGraphNode(id){if(graphMode==='force'){const node=labForceNodes[id];if(!node)return;const position=labForceGraph.cameraPosition(),target=labForceGraph.controls().target||{x:0,y:0,z:0},dx=position.x-target.x,dy=position.y-target.y,dz=position.z-target.z,length=Math.max(1,Math.hypot(dx,dy,dz));labForceGraph.cameraPosition({x:node.x+dx/length*12,y:node.y+dy/length*12,z:node.z+dz/length*12},{x:node.x,y:node.y,z:node.z},550);return;}const target=graphPosition(id);if(!target)return;const direction=labGraphCamera.position.clone().sub(labGraphControls.target).normalize();labGraphControls.target.copy(target);labGraphCamera.position.copy(target).add(direction.multiplyScalar(8));labGraphControls.update();}
+function setLabGraphMode(mode,fit=true){
+  if(!['overview','force','explore'].includes(mode))return;graphMode=mode;
+  document.querySelectorAll('[data-lab-graph-mode]').forEach(item=>item.classList.toggle('active',item.dataset.labGraphMode===mode));
+  $('lab-graph-canvas').hidden=mode==='force';$('lab-graph-force').hidden=mode!=='force';$('lab-force-reheat').hidden=mode!=='force';$('lab-force-pin').hidden=mode!=='force';$('lab-graph-tip').hidden=true;
+  if(mode==='force'){ensureLabForceGraph().resumeAnimation();refreshLabForceGraph(fit);}else{labForceGraph?.pauseAnimation();rebuildGenericGraph(fit);}
+}
+document.querySelectorAll('[data-lab-graph-mode]').forEach(button=>button.onclick=()=>setLabGraphMode(button.dataset.labGraphMode,true));
 $('lab-route-start').onclick=()=>{graphSelectionMode='start';$('lab-route-start').classList.add('active');$('lab-route-end').classList.remove('active');};$('lab-route-end').onclick=()=>{graphSelectionMode='end';$('lab-route-end').classList.add('active');$('lab-route-start').classList.remove('active');};$('lab-route-play').onclick=playGraphRoute;$('lab-graph-home').onclick=()=>{graphAnimationToken++;graphCurrent=0;graphHistory=[0];graphHistoryEdges=[];graphRouteStart=0;graphRouteEnd=null;graphRouteEdges=[];graphRoutePinned=false;renderCurrentPlayBoard();updateGraphReadout();rebuildGenericGraph(true);};$('lab-graph-locate').onclick=()=>focusGraphNode(graphCurrent);
-$('lab-graph-zoom-in').onclick=()=>{labGraphCamera.position.sub(labGraphControls.target).multiplyScalar(.55).add(labGraphControls.target);};$('lab-graph-zoom-out').onclick=()=>{labGraphCamera.position.sub(labGraphControls.target).multiplyScalar(1.7).add(labGraphControls.target);};
+$('lab-force-reheat').onclick=releaseAndReheatLabForceGraph;$('lab-force-pin').onclick=restoreLabForceInitialLayout;
+$('lab-layout-recompute').onclick=startStructuralLayout;
+function zoomLabGraph(factor){if(graphMode==='force'){const graph=ensureLabForceGraph(),position=graph.cameraPosition(),target=graph.controls().target||{x:0,y:0,z:0};graph.cameraPosition({x:target.x+(position.x-target.x)*factor,y:target.y+(position.y-target.y)*factor,z:target.z+(position.z-target.z)*factor},target,280);return;}labGraphCamera.position.sub(labGraphControls.target).multiplyScalar(factor).add(labGraphControls.target);}
+$('lab-graph-zoom-in').onclick=()=>zoomLabGraph(.55);$('lab-graph-zoom-out').onclick=()=>zoomLabGraph(1.7);
 labGraphRenderer.domElement.addEventListener('pointerdown',event=>labGraphPointerDown={x:event.clientX,y:event.clientY});labGraphRenderer.domElement.addEventListener('pointerup',event=>{if(!labGraphPointerDown||Math.hypot(event.clientX-labGraphPointerDown.x,event.clientY-labGraphPointerDown.y)>5)return;const id=graphNodeAt(event);if(id!=null)selectGraphNode(id);});labGraphRenderer.domElement.addEventListener('pointermove',event=>{const id=graphNodeAt(event),tip=$('lab-graph-tip'),rect=event.currentTarget.getBoundingClientRect();if(id==null){tip.hidden=true;return;}const node=genericGraph.nodes[id];tip.hidden=false;tip.style.left=(event.clientX-rect.left+12)+'px';tip.style.top=(event.clientY-rect.top+12)+'px';tip.textContent='#'+id+' · d='+node.distance+(node.goal?' · GOAL':'');});labGraphRenderer.domElement.addEventListener('pointerleave',()=>{$('lab-graph-tip').hidden=true;});
-function animateLabGraph(){requestAnimationFrame(animateLabGraph);const canvas=labGraphRenderer.domElement,width=Math.max(1,canvas.clientWidth),height=Math.max(1,canvas.clientHeight);if(canvas.width!==Math.round(width*labGraphRenderer.getPixelRatio())||canvas.height!==Math.round(height*labGraphRenderer.getPixelRatio())){labGraphRenderer.setSize(width,height,false);labGraphCamera.aspect=width/height;labGraphCamera.updateProjectionMatrix();}labGraphControls.update();const field=2*Math.tan(THREE.MathUtils.degToRad(labGraphCamera.fov)/2);labGraphGroup.children.forEach(child=>{if(!child.userData.pixelDiameter)return;const world=child.position.distanceTo(labGraphCamera)*field*child.userData.pixelDiameter/height;child.scale.setScalar(world/.7);});$('lab-graph-zoom').textContent=Math.round(labGraphCamera.position.distanceTo(labGraphControls.target))+'u';labGraphRenderer.render(labGraphScene,labGraphCamera);}animateLabGraph();
+function animateLabGraph(){requestAnimationFrame(animateLabGraph);if(graphMode==='force'&&labForceGraph){const container=$('lab-graph-force'),width=Math.max(1,Math.round(container.clientWidth)),height=Math.max(1,Math.round(container.clientHeight));if(width!==labForceWidth||height!==labForceHeight){labForceWidth=width;labForceHeight=height;labForceGraph.width(width).height(height);}$('lab-graph-zoom').textContent=Math.round(labForceCameraDistance())+'u';return;}const canvas=labGraphRenderer.domElement,width=Math.max(1,canvas.clientWidth),height=Math.max(1,canvas.clientHeight);if(canvas.width!==Math.round(width*labGraphRenderer.getPixelRatio())||canvas.height!==Math.round(height*labGraphRenderer.getPixelRatio())){labGraphRenderer.setSize(width,height,false);labGraphCamera.aspect=width/height;labGraphCamera.updateProjectionMatrix();}labGraphControls.update();const field=2*Math.tan(THREE.MathUtils.degToRad(labGraphCamera.fov)/2);labGraphGroup.children.forEach(child=>{if(!child.userData.pixelDiameter)return;const world=child.position.distanceTo(labGraphCamera)*field*child.userData.pixelDiameter/height;child.scale.setScalar(world/.7);});$('lab-graph-zoom').textContent=Math.round(labGraphCamera.position.distanceTo(labGraphControls.target))+'u';labGraphRenderer.render(labGraphScene,labGraphCamera);}animateLabGraph();
 
 $('lab-prev').onclick=undoGraphMove;$('lab-next').onclick=hintManualMove;$('lab-play-reset').onclick=resetManualExploration;$('lab-play-hint').onclick=hintManualMove;
 document.querySelectorAll('[data-lab-move]').forEach(button=>button.onclick=()=>{if(playSelectedBlock==null)setStatus('limit','请先选择一个编号块');else manualMove(playSelectedBlock,button.dataset.labMove);});
@@ -351,7 +590,8 @@ if (laboratoryQuery.get('mode') === 'lab') switchMode('lab');
 if (laboratoryQuery.get('strategy') === 'bfs') document.querySelector('[data-lab-strategy="bfs"]').click();
 if (laboratoryQuery.get('shortTimeout') === '1') $('lab-timeout-seconds').value='1';
 if (laboratoryQuery.get('badLimits') === '1') { $('lab-max-states').value=''; $('lab-max-depth').value='10000.8'; }
-if (laboratoryQuery.get('autoBoardResize') === '1') requestAnimationFrame(()=>{const board=$('lab-initial-board'),handle=board.querySelector('.lab-board-resize-handle'),rect=board.getBoundingClientRect(),dims=boardDimensions();if(handle){handle.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:rect.right,clientY:rect.bottom}));window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:rect.right+rect.width/dims.width,clientY:rect.bottom+rect.height/dims.height}));document.body.dataset.boardResizeResult=$('lab-width').value+'x'+$('lab-height').value;}});
+if (laboratoryQuery.get('autoBoardResize') === '1') requestAnimationFrame(()=>{const before=$('lab-width').value+'x'+$('lab-height').value;document.querySelector('[data-board-dimension="width"][data-board-delta="1"]').click();document.body.dataset.boardResizeResult=before+'->'+$('lab-width').value+'x'+$('lab-height').value;});
+if (laboratoryQuery.get('autoBoardShrink') === '1') requestAnimationFrame(()=>{document.querySelector('[data-board-dimension="width"][data-board-delta="-1"]').click();document.body.dataset.boardShrinkMessage=$('lab-status').textContent;});
 if (laboratoryQuery.get('autoAdd') === '1') requestAnimationFrame(()=>{const before=pieces.length,add=$('lab-initial-board').querySelector('.lab-add-cell');add?.click();document.body.dataset.addResult=before+'->'+pieces.length;});
 if (laboratoryQuery.get('autoEdit') === '1') requestAnimationFrame(() => {
   const toggles = document.querySelectorAll('.lab-goal-toggle input'); if (toggles[1]) toggles[1].click();

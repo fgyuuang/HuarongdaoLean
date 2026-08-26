@@ -13,5 +13,9 @@ Thumbs.db
 
 # Generated screenshots and temporary exports
 .edge-*/
+.playwright-cli/
+output/playwright/
 .rendered.html
 node_modules/
+__pycache__/
+*.pyc

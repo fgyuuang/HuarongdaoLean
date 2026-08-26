@@ -3,9 +3,12 @@ import Huarongdao.Transition
 import Huarongdao.Checks
 import Huarongdao.Enumeration
 import Huarongdao.Paths
+import Huarongdao.StateSpace
 import Huarongdao.ClassicSolution
 import Huarongdao.Symmetry
+import Huarongdao.Quotient
 import Huarongdao.Search
 import Huarongdao.Minimality
 import Huarongdao.ProofGame
+import Huarongdao.Bottleneck
 import Huarongdao.Generic

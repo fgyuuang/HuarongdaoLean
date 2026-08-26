@@ -13,8 +13,9 @@
 - 成功移动保持合法性、一步保持合法性、可达状态保持合法性证明
 - Lean 内实现的 BFS 状态图枚举与 JSON 导出
 - 同形棋子标签置换下的规范键，即对称作用的商状态图
-- Three.js 完整三维状态图：25,955 个像素级节点和 41,948 条无向连接
-- 全览/探索双模式、当前状态定位、深度缩放、起终点选择和逐边路径动画
+- 完整三维状态图：25,955 个节点和 41,948 条无向连接
+- 参考全览、`3d-force-graph` 完整力导向、局部探索三种模式
+- 当前状态定位、深度缩放、起终点选择和逐边 Lean 合法路径动画
 - 前端实时显示 `ValidState`、`goal` 和转换来源，并可查看已编译的定理
 - 到达出口时显示完成节点、玩家步数、BFS 距离和路径验证类别
 - `Path`、`Solution` 与 `CertifiedPlay`：玩家通关动作列表可以直接成为证明见证
@@ -69,7 +70,7 @@ verified_search_exhibits_reachable_goal :
 
 ### 通用状态图探索
 
-通用 `search` 不会在发现第一个目标后立刻停止，而会继续枚举精确编号状态，直到队列耗尽或触发资源限制。它返回：
+通用 BFS 不会在发现第一个目标后立刻停止，而会继续枚举精确编号状态，直到队列耗尽或触发资源限制。它返回：
 
 ```lean
 structure GraphEdge where
@@ -86,7 +87,32 @@ structure StateGraph where
   complete  : Bool
 ```
 
-前端状态图使用独立 Three.js 场景，尽量复现经典华容道的图交互：透视相机、OrbitControls 旋转/缩放、Raycaster 节点拾取、当前/起点/终点圆环、视图定位、路径覆盖线和逐边动画。全览按 BFS 距离构造三维分层布局并绘制所有已枚举节点和去重连接；探索模式只显示已经走过的节点及当前一步后继，并使用持久的局部弹簧/排斥力导向布局。点击节点只选择路径端点，播放时必须沿 Lean 导出的边逐步更新棋盘，不允许直接跳转状态。当前状态棋盘也支持原版式手动探索：选择或拖动编号块、方向按钮和方向键都只匹配当前节点的 Lean outgoing；支持撤回、复位和提示一步，每次成功移动都会织入探索图并新增一个 GraphPath.cons。
+关卡实验室的生成与渲染链完全在本机完成：
+
+```text
+浏览器编辑 PuzzleSpec
+  → POST http://127.0.0.1:4173/api/puzzle/solve
+  → 本地 Node 服务启动 .lake/build/bin/solve-puzzle.exe
+  → Lean 解析规格并执行 BFS / A*
+  → JSON 返回状态、距离、目标标记和带动作的有向边
+  → 浏览器 Web Worker 计算确定性的结构坐标
+      → 图距离地标初始化与 BFS 父节点附近生长
+      → 四维非线性吸引/排斥与镜像约束
+      → 3.98 → 3.95 → 3D 投影
+  → Three.js / 3d-force-graph 在本地 WebGL 画布渲染
+```
+
+`127.0.0.1` 是只指向本机的回环地址，不是云端渲染服务。页面、求解器、布局 Worker、`3d-force-graph` 运行时和图数据都来自项目目录；断开互联网后，只要依赖已经安装且项目已构建，关卡实验室仍可生成和显示状态图。经典模式的 `layout.json` 是构建前已经持久化的参考坐标；自定义关卡则在 Lean 返回图以后，由本地浏览器 Worker 计算坐标并保存在当前页面内存中。
+
+实验室提供三种视图：
+
+- **结构全览**：固定使用 Worker 生成的确定性 `4D → 3D` 坐标，并按距初态的 BFS 距离给节点和边着色。全览采用细边主导的绘制策略；普通节点随图规模缩小，起点、当前点、目标和证明路径单独突出，避免大图被节点球遮住。
+- **3D 松弛**：`3d-force-graph` 使用同一批结构坐标作为固定的 `fx/fy/fz`；它默认负责 WebGL 绘制、拾取、相机和交互。只有点击“重新加热”后才释放坐标并运行有限的 `d3-force-3d` 二次松弛；“恢复结构”精确返回 Worker 坐标。
+- **局部探索**：只显示已经走过的节点及当前状态的一步后继，并使用轻量的局部弹簧/排斥布局。
+
+为了画线，前端会把正反方向重复边合并成一条无向可视连接；Lean 返回的原始有向边、棋子编号和移动方向不会被删除，棋盘移动、路径选择与动画始终使用这些带动作的边。点击节点只选择路径端点，不会直接跳转状态。当前状态棋盘支持选择或拖动编号块、方向按钮、方向键、撤回、复位和提示一步；每次成功移动都会新增一个由已检查边构造的 `GraphPath.cons`。
+
+布局器本身不依赖华容道规则。最小输入只需要节点与边，节点 ID 可以是数字或字符串，边端点也可以直接写 ID 或 `{ id }`；`startId` 可指定布局地标的起点。未提供 `distance` 时，Worker 会在可视无向图上自动计算起点 BFS 距离。只有同时提供 `board`、`shapes` 和每个节点的 `positions` 时，才启用华容道水平/垂直镜像配对。因此同一个模块也可以显示其他有限状态机、商图或由 Lean 导出的任意有限图。
 
 每条 JSON 边由 `StateGraph.checkEdge` 独立重放，并由以下定理连接到通用移动语义：
 
@@ -97,7 +123,9 @@ GraphPath.toReachable :
   GraphPath spec graph source target → Reachable spec source target
 ```
 
-`graph.complete = false` 时，界面明确显示“资源截断子图”；此时图仍可探索，但不能用于声称目标不可达。`graph.complete = true` 表示本次可执行 BFS 没有触发上限并耗尽队列。BFS 闭包完备性尚未封装为内核级队列不变量定理。
+只有 **BFS 图枚举**旨在生成整个可达状态图。`graph.complete = true` 表示本次可执行 BFS 没有触发上限并耗尽队列；`graph.complete = false` 且 `graph.truncated = true` 时，界面显示“资源截断子图”，仍可探索已返回部分，但不能声称目标不可达。A* 在找到目标后停止，只返回 `solution-subgraph`，不能当作全览图。BFS 闭包完备性尚未封装为内核级队列不变量定理。
+
+当前通用 BFS 的节点是**编号敏感的精确状态**：两个尺寸相同但编号不同的木块交换位置，默认仍是两个状态。搜索器可以使用由 `shapes + goal.positions` 推导的运行时对称键减少 A* 重复搜索，但“任意关卡的可执行商图与路径提升”尚未成为无条件的 Lean 定理。正式商空间需要先定义状态等价关系，并证明每条商边都能从任意等价代表提升为具体合法移动；这也是下一阶段形式化的核心目标。
 
 ### 两种搜索方法
 
@@ -131,14 +159,35 @@ BFS 与 A* 返回的路径长度是可执行搜索结果。通用路径存在性
 
 `Model.lean / Transition.lean` 定义和证明规则，`ExportMain.lean` 调用同一个 `legalMoves / tryMove` 枚举状态图并生成 `frontend/graph.json`，浏览器只读取这份数据。前端不会重新实现一套华容道碰撞规则，因此棋盘可执行的每条边都来自 Lean 模型。
 
+### Windows 启动
+
+在项目根目录双击 [`start-huarongdao.cmd`](start-huarongdao.cmd)，或在 PowerShell 中运行：
+
+```powershell
+.\start-huarongdao.cmd
+```
+
+脚本会检查 Node.js、Lean Lake、`node_modules` 和 Lean 求解器；缺少前端依赖时执行 `npm ci`，缺少编译产物时执行 `lake build`，缺少经典图数据时执行 `lake exe export-graph frontend/graph.json`，随后在可见的独立窗口启动本地服务，并打开：
+
+```text
+http://127.0.0.1:4173/?mode=lab
+```
+
+关闭服务窗口即可停止服务。若 `4173` 已经被本项目占用，脚本不会重复启动，而是直接打开现有服务。
+
+视频、原互动网站和本项目采用不同的显示技术：视频使用作者自写的 C++/CUDA 渲染与力布局；原网站读取预计算坐标并用 Canvas 2D 投影；本项目按研究需求额外使用 `3d-force-graph` 提供可释放、可重新加热的三维查看器。自定义关卡的结构坐标由 `structural-layout-worker.js` 在本机计算，不来自在线网站或经典 `layout.json`。力布局只改变坐标，不改变 Lean 状态、合法边、可达性或最短距离。
+
 实时面板中的 `ValidState = true` 依据是：经典初态有 `classic_valid`，且每条成功转换满足 `tryMove_preserves_validity`，进而所有可达节点满足 `reachable_preserves_validity`。`goal` 则直接读取 Lean 导出时对该状态计算的目标谓词。
 
 通关结果会区分两种情况：只使用棋盘方向操作时，记录为连续的玩家解；图导航会先计算合法路径，再逐边更新棋盘并将每帧标记为 `tryMove = some`，但不把自动导航计作玩家手动解。
 
-## 经典模式的两种图展示
+## 经典模式的三种图展示
 
-- **全览模式**：显示全部 25,955 个灰度节点和 41,948 条连接。支持深度缩放、定位当前状态、选择任意起点和终点；点击终点后，系统先计算 `当前 → 选定起点 → 选定终点` 的最短路径，再逐边播放棋盘动画，不允许直接跳转状态。
-- **探索模式**：只显示已经到达的状态、已经走过的边，以及当前状态的一步合法后继。玩家移动或路径动画每经过一条合法边，图中就加入对应节点和连接，逐步织出转换图。
+- **参考全览**：自定义 Three.js 点线渲染器显示全部 25,955 个节点和 41,948 条连接，固定使用离线预计算坐标。
+- **3D 力导向**：由 `3d-force-graph@1.80.0` 渲染同一份 Lean 图。默认以 `fx/fy/fz` 固定参考形状；“释放并重新加热”会保留参考边长和弱锚定力，运行有限次 `d3-force-3d` 松弛；“固定参考形状”可精确恢复坐标。
+- **局部探索**：只显示已经到达的状态、已经走过的边，以及当前状态的一步合法后继。玩家移动或路径动画每经过一条合法边，图中就加入对应节点和连接，逐步织出转换图。
+
+三种模式共享同一套路径交互。点击节点只选择路径端点，系统先计算 `当前 → 选定起点 → 选定终点` 的最短路径，再逐边更新棋盘；任何一帧都必须对应 Lean 导出的合法边，不允许直接跳转状态。
 
 ## 路径就是证明
 
@@ -183,6 +232,7 @@ lake exe huarongdao
 lake exe export-graph frontend/graph.json
 lake exe check-certificate
 lake exe solve-puzzle 3 2 1000 20 2 1 1 0 0 2 0 1 1 1 0 '*' '*'
+npm run analyze
 npm run layout
 npm run serve
 ```
@@ -195,10 +245,13 @@ npm run serve
 - `Huarongdao/Transition.lean`：一步关系、可达性和保持性证明
 - `Huarongdao/Enumeration.lean`：动作枚举 soundness/completeness
 - `Huarongdao/Paths.lean`：依赖路径与 Solution
+- `Huarongdao/StateSpace.lean`：带根、带目标、带动作的通用转移系统，观测商、双模拟商、路径提升与门区证书
 - `Huarongdao/ProofGame.lean`：CertifiedPlay 与抽象 GameSymmetry
 - `Huarongdao/Symmetry.lean`：商等价、标签换位与镜像
+- `Huarongdao/Quotient.lean`：合法状态上的 `Setoid`、同形标签观测商与 `SameShapeStepLift` 双模拟证明义务
 - `Huarongdao/Search.lean`：BFS、图 checker 与商图下界证书
 - `Huarongdao/Minimality.lean`：势函数最短性定理
+- `Huarongdao/Bottleneck.lean`：必经区域、割集、扫掠区，以及“所有解都到达关羽已清空曹操下降扫掠区的状态”定理
 - `Huarongdao/ClassicSolution.lean`：116 步内核检查解
 - `Huarongdao/Generic/Model.lean`：通用棋盘、编号块、初态、目标和移动
 - `Huarongdao/Generic/Enumeration.lean`：通用合法动作枚举精确性
@@ -209,17 +262,23 @@ npm run serve
 - `Huarongdao/Generic/Examples.lean`：非华容道 3×2 内核回归实例
 - `GenericMain.lean`：通用 Lean 求解器 JSON 输出程序
 - `frontend/laboratory.js`：关卡编辑、API、回放和证明链
+- `frontend/structural-layout-worker.js`：任意关卡的确定性四维展开、镜像约束和三维投影
+- `frontend/state-space-visualization.js`：通用状态空间、布局坐标与节点点击负载的适配接口
 - `scripts/serve.mjs`：静态资源与 `POST /api/puzzle/solve`
 - `scripts/check-generic.mjs`：四类搜索结果自动回归测试
+- `scripts/check-layout.mjs`：30、660 和 1,620 节点图的有限性、确定性、镜像误差与大图近场分箱回归
 - `CertMain.lean`：经典完整图证书执行检查
 - `ExportMain.lean`：BFS 枚举与 JSON 导出
-- `frontend/app.js`：棋盘与完整 Three.js 点线状态图交互
-- `frontend/vendor/`：项目本地固定的 Three.js 与 OrbitControls 运行时
+- `frontend/app.js`：棋盘、参考全览、`3d-force-graph` 与局部探索交互
+- `frontend/vendor/`：项目本地固定的 Three.js、OrbitControls 和 `3d-force-graph` 浏览器运行时
 - `frontend/graph.json`：由 Lean 生成的状态和合法边，不手工维护
 - `frontend/layout.json`：按 Lean 状态 ID 对齐的参考三维坐标
 - `scripts/import-reference-layout.mjs`：参考坐标到规范状态键的可复现映射
+- `scripts/analyze-state-space.py`：桥、割点和双连通块的探索性复算
+- `STATE_SPACE_RESEARCH.md`：图生成证据、Mathlib 对应关系与后续形式化路线
+- `STATE_SPACE_VISUALIZATION.md`：任意有限状态空间的输入、坐标、渲染和点击接口
 - `THIRD_PARTY_NOTICES.md`：参考布局来源和 GPLv3 许可说明
 
 ## 当前边界
 
-当前“步”定义为单个棋子平移一个格。最短距离因此按单格移动计数。全览模式绘制完整可达连通分量；探索模式只绘制本局逐步发现的子图。棋盘操作和自动导航都会移动当前状态环并更新路径，其中自动导航的相邻帧必须由一条 Lean 合法边连接。三维布局坐标适配自 2swap/Klotski-Webpage，状态、合法边、起点距离和目标判定仍来自 Lean 导出。BFS 枚举器与独立证书检查器都是可执行 Lean 程序。一般性的动作枚举、路径、商证书下界和最短性推导已经形式证明；完整 25,955 节点证书已计算验证为 true，但尚未全部封装为一个可由内核定理直接消费的大型证明对象。
+当前“步”定义为单个棋子平移一个格。最短距离因此按单格移动计数。两个完整图模式绘制整个可达连通分量；局部探索只绘制本局逐步发现的子图。棋盘操作和自动导航都会移动当前状态环并更新路径，其中自动导航的相邻帧必须由一条 Lean 合法边连接。经典参考坐标适配自 2swap/Klotski-Webpage，自定义坐标由本项目 Worker 生成；两者都只是可视化数据。地标、镜像配对、力参数、屏幕中的细颈以及 `3d-force-graph` 的松弛结果都不是数学证书。Lean 权威数据仍是状态、动作标签与合法有向一步；视觉上的桥或门区必须经过有限图 checker 后才能成为定理。BFS 枚举器与独立证书检查器都是可执行 Lean 程序。一般性的动作枚举、路径、商证书下界和最短性推导已经形式证明；完整 25,955 节点证书已计算验证为 true，但尚未全部封装为一个可由内核定理直接消费的大型证明对象。
