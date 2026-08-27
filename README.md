@@ -22,7 +22,11 @@
 - `mem_legalMoves_iff`：合法动作枚举的可靠性与完备性
 - 116 步具体通关动作由 Lean 内核计算检查
 - `SameShape` 商等价、同形棋子换位、左右镜像基础与抽象 `GameSymmetry`
+- 同形标签商的完整 `SameShapeStepLift` 与长度保持路径提升
+- 同形商上的水平镜像双模拟商，以及可展开的决策骨架加权状态空间
+- 统一 `StateSpace.Task` 内核、可组合投影同态和四层端到端具体路径提升
 - 图证书检查器验证商边、闭包、唯一代表、距离约束和目标下界
+- `classic116Play_minimal` 与 `ClassicStateSpaceKernel.concreteSolution_lower_bound` 将有限证书接入统一状态空间内核
 
 ## 关卡实验室
 
@@ -104,6 +108,14 @@ structure StateGraph where
 
 `127.0.0.1` 是只指向本机的回环地址，不是云端渲染服务。页面、求解器、布局 Worker、`3d-force-graph` 运行时和图数据都来自项目目录；断开互联网后，只要依赖已经安装且项目已构建，关卡实验室仍可生成和显示状态图。经典模式的 `layout.json` 是构建前已经持久化的参考坐标；自定义关卡则在 Lean 返回图以后，由本地浏览器 Worker 计算坐标并保存在当前页面内存中。
 
+经典模式提供三个彼此独立、可相互恢复的状态空间：
+
+- **同形商**：直接读取 Lean 导出的 `graph.json` 与参考 `layout.json`，包含 25,955 个 `ShapeState` 代表。
+- **镜像商**：读取本地脚本生成的 `graph.mirror.json` 与 `layout.mirror.json`，包含 13,011 个镜像类。保留“展开 / 合并 / 100%”滑块，使用每个镜像类的两端坐标和中点坐标连续展示 `25,955 → 13,011` 的投影。
+- **决策骨架**：读取独立的 `graph.corridor.json` 与 `layout.corridor.json`，只显示初始、目标与分岔关键节点。连续的二度中间状态不绘制，只保存在宏边的展开路径中；普通单步边为灰色，确实归并多个底层步骤的边为蓝色，宏边两端用金色点突出显示。每条宏边保存完整镜像商节点路径、原子步骤和权重，可展开回父状态空间。
+
+三层分类沿用协作审查中形成的结构，但将原“强制走廊”按作用命名为“决策骨架”。不采用队友的动态重布局算法；各层节点位置、镜像中点、展开动画和骨架关键节点全部使用本地项目已经生成并验收的坐标文件。
+
 实验室提供三种视图：
 
 - **结构全览**：固定使用 Worker 生成的确定性 `4D → 3D` 坐标，并按距初态的 BFS 距离给节点和边着色。全览采用细边主导的绘制策略；普通节点随图规模缩小，起点、当前点、目标和证明路径单独突出，避免大图被节点球遮住。
@@ -125,7 +137,7 @@ GraphPath.toReachable :
 
 只有 **BFS 图枚举**旨在生成整个可达状态图。`graph.complete = true` 表示本次可执行 BFS 没有触发上限并耗尽队列；`graph.complete = false` 且 `graph.truncated = true` 时，界面显示“资源截断子图”，仍可探索已返回部分，但不能声称目标不可达。A* 在找到目标后停止，只返回 `solution-subgraph`，不能当作全览图。BFS 闭包完备性尚未封装为内核级队列不变量定理。
 
-当前通用 BFS 的节点是**编号敏感的精确状态**：两个尺寸相同但编号不同的木块交换位置，默认仍是两个状态。搜索器可以使用由 `shapes + goal.positions` 推导的运行时对称键减少 A* 重复搜索，但“任意关卡的可执行商图与路径提升”尚未成为无条件的 Lean 定理。正式商空间需要先定义状态等价关系，并证明每条商边都能从任意等价代表提升为具体合法移动；这也是下一阶段形式化的核心目标。
+当前通用 BFS 的节点是**编号敏感的精确状态**：两个尺寸相同但编号不同的木块交换位置，默认仍是两个状态。搜索器可以使用由 `shapes + goal.positions` 推导的运行时对称键减少 A* 重复搜索。经典华容道的同形标签商和水平镜像商已经具有无条件的 Lean 路径投影/提升定理；决策骨架层则证明每条带权宏路径都能等成本展开为具体合法路径。任意用户关卡仍需根据其形状与目标约束构造相应等价关系并证明代表无关性，不能直接复用经典关卡的 `S₄ × S₄` 实例。
 
 ### 两种搜索方法
 
@@ -173,7 +185,7 @@ BFS 与 A* 返回的路径长度是可执行搜索结果。通用路径存在性
 http://127.0.0.1:4173/?mode=lab
 ```
 
-关闭服务窗口即可停止服务。若 `4173` 已经被本项目占用，脚本不会重复启动，而是直接打开现有服务。
+关闭服务窗口即可停止服务。脚本会先请求 `http://127.0.0.1:4173/api/health`：若已是本项目服务则直接打开；若 `4173` 被其他程序占用则明确报错，不会重复启动。
 
 视频、原互动网站和本项目采用不同的显示技术：视频使用作者自写的 C++/CUDA 渲染与力布局；原网站读取预计算坐标并用 Canvas 2D 投影；本项目按研究需求额外使用 `3d-force-graph` 提供可释放、可重新加热的三维查看器。自定义关卡的结构坐标由 `structural-layout-worker.js` 在本机计算，不来自在线网站或经典 `layout.json`。力布局只改变坐标，不改变 Lean 状态、合法边、可达性或最短距离。
 
@@ -203,14 +215,25 @@ http://127.0.0.1:4173/?mode=lab
 
 1. **动作枚举**：`mem_legalMoves_iff`、`legalMoves_sound`、`legalMoves_complete` 已由 Lean 内核检查。
 2. **路径证明**：`Path`、`Solution`、`CertifiedPlay`、`classic_solvable` 和 116 步具体解已完成。
-3. **图证书**：`checkEdges_sound`、闭包 soundness 和抽象 `QuotientLowerBoundCertificate.solution_lower_bound` 已证明；对完整图执行 checker 得到边可靠、闭包、唯一代表和距离约束全部为 true。
-4. **最短性**：`LowerBoundCertificate` 已证明局部势函数约束推出任意玩家解的全局长度下界，并证明达到下界的解最短。当前最后桥梁是把完整大图的可执行 true 证书封装成内核级 `LowerBoundCertificate classic 116`，避免证明阶段重新运行完整 BFS。
+3. **图证书**：`checkQuotientLowerBound_sound` 将初态、闭包、逐边势函数约束和目标下界的可执行检查转成 `QuotientLowerBoundCertificate`；经典 25,955 节点商图由 `native_decide` 给出 true 证明。
+4. **最短性**：`classic116Play_minimal` 证明已检查的 116 步玩家解全局最短；`ClassicStateSpaceKernel.concreteSolution_lower_bound` 进一步说明统一内核中任意具体解都至少需要 116 个原子移动。
 
 ## 对称性
 
-`SameShape` 忽略四个竖块和四个小兵的标签差异，并已证明自反、对称、传递及目标保持。`PieceRelabeling` 表示保形标签置换；项目包含小兵一/二换位实例。`mirrorState` 和 `Direction.mirror` 表示左右镜像，并证明方向镜像二次还原、有界状态镜像两次恢复以及中央出口目标保持。
+`SameShape` 忽略四个竖块和四个小兵的标签差异，并已证明自反、对称、传递及目标保持。`PieceRelabeling` 表示保形标签置换；`Relabeling.lean` 进一步证明任意合法 `SameShape` 都由一个实际置换实现，且 `occupiedCells`、`valid`、`moveUnchecked` 和 `tryMove` 在该置换下等变，因此同形商是长度保持的精确双模拟商。`mirrorState` 和 `Direction.mirror` 表示左右镜像，并证明镜像保持合法性、成功移动和中央出口目标。
 
 抽象 `GameSymmetry` 表明：只要一个状态变换与 `tryMove` 交换且保持 `goal`，Lean 就能自动把任意 `Path` 和 `Solution` 映射为对称的新证明。
+
+经典内核维护四个互不覆盖的 `StateSpace.Task`：
+
+```text
+具体合法状态
+  -> 同形标签商
+  -> 水平镜像商
+  -> 决策骨架加权压缩
+```
+
+前两层通过 `Observation.projectionHom` 投影，并通过 `BisimulationQuotient` 从任意代表逐边提升；决策骨架层的每条宏边携带完整镜像商路径。`ClassicStateSpaceKernel.corridorWalk_liftsToConcrete` 将任意骨架路径展开为具体合法路径，并证明具体步数等于宏边权重之和。
 
 ## 数学模型
 
@@ -245,11 +268,16 @@ npm run serve
 - `Huarongdao/Transition.lean`：一步关系、可达性和保持性证明
 - `Huarongdao/Enumeration.lean`：动作枚举 soundness/completeness
 - `Huarongdao/Paths.lean`：依赖路径与 Solution
-- `Huarongdao/StateSpace.lean`：带根、带目标、带动作的通用转移系统，观测商、双模拟商、路径提升与门区证书
+- `Huarongdao/StateSpace.lean`：统一 `Task` 对象、同态及复合、观测商任务、双模拟商和长度保持路径提升
 - `Huarongdao/ProofGame.lean`：CertifiedPlay 与抽象 GameSymmetry
 - `Huarongdao/Symmetry.lean`：商等价、标签换位与镜像
-- `Huarongdao/Quotient.lean`：合法状态上的 `Setoid`、同形标签观测商与 `SameShapeStepLift` 双模拟证明义务
+- `Huarongdao/Relabeling.lean`：保形重标号的合法性/移动等变，以及从 `SameShape` 构造实际置换
+- `Huarongdao/Quotient.lean`：同形标签观测商、已完成的 `sameShapeStepLift` 与精确双模拟
+- `Huarongdao/MirrorQuotient.lean`：镜像合法性、同形商上的镜像双模拟及两级商到具体状态的提升
+- `Huarongdao/CorridorCompression.lean`：保留完整展开路径的加权决策骨架状态空间
+- `Huarongdao/StateSpaceKernel.lean`：经典四层状态空间的统一公开入口与端到端定理
 - `Huarongdao/Search.lean`：BFS、图 checker 与商图下界证书
+- `Huarongdao/ClassicCertificate.lean`：经典有限商图的 116 下界、玩家解最短性及统一 `StateSpace.Task` 接口
 - `Huarongdao/Minimality.lean`：势函数最短性定理
 - `Huarongdao/Bottleneck.lean`：必经区域、割集、扫掠区，以及“所有解都到达关羽已清空曹操下降扫掠区的状态”定理
 - `Huarongdao/ClassicSolution.lean`：116 步内核检查解
@@ -273,7 +301,12 @@ npm run serve
 - `frontend/vendor/`：项目本地固定的 Three.js、OrbitControls 和 `3d-force-graph` 浏览器运行时
 - `frontend/graph.json`：由 Lean 生成的状态和合法边，不手工维护
 - `frontend/layout.json`：按 Lean 状态 ID 对齐的参考三维坐标
+- `frontend/graph.mirror.json`、`frontend/layout.mirror.json`：本地镜像商数据、两端坐标与中点坐标
+- `frontend/graph.corridor.json`、`frontend/layout.corridor.json`：本地决策骨架关键节点、宏边路径与坐标
 - `scripts/import-reference-layout.mjs`：参考坐标到规范状态键的可复现映射
+- `scripts/build_mirror_quotient.py`：从同形商底图生成独立镜像商文件
+- `scripts/build_corridor_compression.py`：从镜像商生成独立走廊文件
+- `scripts/check-local-state-spaces.mjs`：三层计数、布局对齐和宏边完整展开回归
 - `scripts/analyze-state-space.py`：桥、割点和双连通块的探索性复算
 - `STATE_SPACE_RESEARCH.md`：图生成证据、Mathlib 对应关系与后续形式化路线
 - `STATE_SPACE_VISUALIZATION.md`：任意有限状态空间的输入、坐标、渲染和点击接口
@@ -281,4 +314,4 @@ npm run serve
 
 ## 当前边界
 
-当前“步”定义为单个棋子平移一个格。最短距离因此按单格移动计数。两个完整图模式绘制整个可达连通分量；局部探索只绘制本局逐步发现的子图。棋盘操作和自动导航都会移动当前状态环并更新路径，其中自动导航的相邻帧必须由一条 Lean 合法边连接。经典参考坐标适配自 2swap/Klotski-Webpage，自定义坐标由本项目 Worker 生成；两者都只是可视化数据。地标、镜像配对、力参数、屏幕中的细颈以及 `3d-force-graph` 的松弛结果都不是数学证书。Lean 权威数据仍是状态、动作标签与合法有向一步；视觉上的桥或门区必须经过有限图 checker 后才能成为定理。BFS 枚举器与独立证书检查器都是可执行 Lean 程序。一般性的动作枚举、路径、商证书下界和最短性推导已经形式证明；完整 25,955 节点证书已计算验证为 true，但尚未全部封装为一个可由内核定理直接消费的大型证明对象。
+当前“步”定义为单个棋子平移一个格。最短距离因此按单格移动计数。两个完整图模式绘制整个可达连通分量；局部探索只绘制本局逐步发现的子图。棋盘操作和自动导航都会移动当前状态环并更新路径，其中自动导航的相邻帧必须由一条 Lean 合法边连接。经典参考坐标适配自 2swap/Klotski-Webpage，自定义坐标由本项目 Worker 生成；两者都只是可视化数据。地标、镜像配对、力参数、屏幕中的细颈以及 `3d-force-graph` 的松弛结果都不是数学证书。Lean 权威数据仍是状态、动作标签与合法有向一步；视觉上的桥或门区必须经过有限图 checker 后才能成为定理。BFS 枚举器与独立证书检查器都是可执行 Lean 程序。一般性的动作枚举、路径、商证书下界和最短性推导已经形式证明；完整 25,955 节点商图的 true 证书现已由 `ClassicCertificate.lean` 封装为可被统一状态空间内核直接消费的 116 步下界。

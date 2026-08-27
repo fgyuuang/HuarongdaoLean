@@ -1,5 +1,6 @@
 import Huarongdao.Enumeration
-import Huarongdao.Symmetry
+import Huarongdao.Relabeling
+import Huarongdao.ProofGame
 import Std.Data.HashMap
 import Std.Data.HashSet
 
@@ -15,6 +16,7 @@ structure Graph where
   states : Array State
   edges : Array Edge
   distance : Array Nat
+  index : Std.HashMap String Nat
 
 def enumerate (start : State) : Graph := Id.run do
   let mut states := #[start]
@@ -37,7 +39,7 @@ def enumerate (start : State) : Graph := Id.run do
           pure id
       edges := edges.push ⟨cursor, target, piece, direction⟩
     cursor := cursor + 1
-  return ⟨states, edges, distance⟩
+  return ⟨states, edges, distance, known⟩
 
 def Graph.sourceState (g : Graph) (edge : Edge) : State :=
   g.states.getD edge.source classic
@@ -60,6 +62,134 @@ theorem checkEdge_sound {g : Graph} {edge : Edge}
   | some actual =>
       simp [hm] at h
       exact ⟨edge.piece, edge.direction, actual, hm, h⟩
+
+/-- Strengthen a quotient edge with an explicit equal-shape relabeling witness. -/
+def checkRelabeledEdge (g : Graph) (edge : Edge) : Bool :=
+  match tryMove (g.sourceState edge) edge.piece edge.direction with
+  | none => false
+  | some actual =>
+      (findShapeRelabeling actual (g.targetState edge)).isSome
+
+theorem checkRelabeledEdge_sound {g : Graph} {edge : Edge}
+    (h : checkRelabeledEdge g edge = true) :
+    ∃ actual relabeling,
+      tryMove (g.sourceState edge) edge.piece edge.direction =
+        some actual ∧
+      actual = relabelState relabeling (g.targetState edge) := by
+  unfold checkRelabeledEdge at h
+  cases executed :
+      tryMove (g.sourceState edge) edge.piece edge.direction with
+  | none =>
+      simp [executed] at h
+  | some actual =>
+      cases found :
+          findShapeRelabeling actual (g.targetState edge) with
+      | none =>
+          simp [executed, found] at h
+      | some relabeling =>
+          exact
+            ⟨actual, relabeling, rfl,
+              (findShapeRelabeling_sound found).symm⟩
+
+def checkRelabeledEdges (g : Graph) : Bool :=
+  g.edges.all (checkRelabeledEdge g)
+
+/-- Locate a concrete state as an exact relabeling of its indexed representative. -/
+def Graph.findRepresentation (g : Graph) (state : State) :
+    Option (Nat × PieceRelabeling) := do
+  let index ← g.index.get? state.key
+  if index < g.states.size then
+    let relabeling ←
+      findShapeRelabeling state (g.states.getD index classic)
+    return (index, relabeling)
+  else
+    none
+
+theorem Graph.findRepresentation_sound
+    {g : Graph} {state : State} {index : Nat}
+    {relabeling : PieceRelabeling}
+    (h : g.findRepresentation state = some (index, relabeling)) :
+    index < g.states.size ∧
+      state = relabelState relabeling
+        (g.states.getD index classic) := by
+  unfold Graph.findRepresentation at h
+  cases indexed : g.index.get? state.key with
+  | none =>
+      rw [indexed] at h
+      simp at h
+  | some candidate =>
+      rw [indexed] at h
+      by_cases bound : candidate < g.states.size
+      · simp [bound] at h
+        cases found :
+            findShapeRelabeling state g.states[candidate] with
+        | none =>
+            simp [found] at h
+        | some candidateRelabeling =>
+            rw [found] at h
+            have pairEq :
+                (candidate, candidateRelabeling) =
+                  (index, relabeling) :=
+              Option.some.inj h
+            have indexEq : candidate = index :=
+              congrArg Prod.fst pairEq
+            have relabelingEq :
+                candidateRelabeling = relabeling :=
+              congrArg Prod.snd pairEq
+            subst index
+            subst relabeling
+            exact
+              ⟨bound, by
+                simpa [bound] using
+                  (findShapeRelabeling_sound found).symm⟩
+      · simp [bound] at h
+
+def checkTransitionFrom (g : Graph) (index : Nat) : Bool :=
+  (legalMoves (g.states.getD index classic)).all fun move =>
+    match g.findRepresentation move.2.2 with
+    | none => false
+    | some (target, _) =>
+        g.distance.getD target 0 ≤
+          g.distance.getD index 0 + 1
+
+/-- Every legal move from every stored representative has a represented target
+    whose potential grows by at most one. -/
+def checkRelabeledClosed (g : Graph) : Bool :=
+  (List.range g.states.size).all (checkTransitionFrom g)
+
+theorem checkRelabeledClosed_sound {g : Graph}
+    (h : checkRelabeledClosed g = true)
+    (index : Nat) (indexLt : index < g.states.size)
+    {piece : Piece} {direction : Direction} {next : State}
+    (executed :
+      tryMove (g.states.getD index classic) piece direction =
+        some next) :
+    ∃ target relabeling,
+      target < g.states.size ∧
+      next = relabelState relabeling
+        (g.states.getD target classic) ∧
+      g.distance.getD target 0 ≤
+        g.distance.getD index 0 + 1 := by
+  have member :
+      (piece, direction, next) ∈
+        legalMoves (g.states.getD index classic) :=
+    legalMoves_complete executed
+  unfold checkRelabeledClosed at h
+  rw [List.all_eq_true] at h
+  have checked := h index (List.mem_range.mpr indexLt)
+  unfold checkTransitionFrom at checked
+  rw [List.all_eq_true] at checked
+  have checked := checked (piece, direction, next) member
+  cases represented : g.findRepresentation next with
+  | none =>
+      simp [represented] at checked
+  | some representation =>
+      rcases representation with ⟨target, relabeling⟩
+      rw [represented] at checked
+      have sound := Graph.findRepresentation_sound represented
+      exact
+        ⟨target, relabeling, sound.1, sound.2,
+          of_decide_eq_true checked⟩
 
 def checkEdges (g : Graph) : Bool := g.edges.all (checkEdge g)
 
@@ -216,6 +346,53 @@ theorem solution_lower_bound
   change bound ≤ solution.path.length
   exact Nat.le_trans goalPotential (by simpa using potentialPath)
 
+/-- Execute a player's action list through the represented quotient nodes. -/
+theorem runMoves_potential_le_aux
+    (certificate : QuotientLowerBoundCertificate initial bound)
+    {source target : State} {node : certificate.Node}
+    {actions : List Action}
+    (represented : certificate.represents source node)
+    (executed : runMoves source actions = some target) :
+    ∃ targetNode : certificate.Node,
+      certificate.represents target targetNode ∧
+      certificate.potential targetNode ≤
+        certificate.potential node + actions.length := by
+  induction actions generalizing source node with
+  | nil =>
+      simp [runMoves] at executed
+      subst target
+      exact ⟨node, represented, by simp⟩
+  | cons action rest inductionHypothesis =>
+      cases moved :
+          tryMove source action.piece action.direction with
+      | none =>
+          simp [runMoves, moved] at executed
+      | some next =>
+          simp [runMoves, moved] at executed
+          rcases certificate.simulateForward represented
+              ⟨action, moved⟩ with
+            ⟨nextNode, edge, nextRepresented⟩
+          rcases inductionHypothesis nextRepresented executed with
+            ⟨targetNode, targetRepresented, tailBound⟩
+          refine ⟨targetNode, targetRepresented, ?_⟩
+          have headBound := certificate.potentialStep edge
+          simp only [List.length_cons]
+          omega
+
+/-- The quotient certificate applies directly to executable player input. -/
+theorem play_lower_bound
+    (certificate : QuotientLowerBoundCertificate start bound)
+    (play : CertifiedPlay start) :
+    bound ≤ play.length := by
+  rcases certificate.runMoves_potential_le_aux
+      certificate.startRepresented play.executed with
+    ⟨targetNode, represented, pathBound⟩
+  have goalBound :=
+    certificate.goalLowerBound represented play.solved
+  rw [certificate.startPotential] at pathBound
+  change bound ≤ play.actions.length
+  exact Nat.le_trans goalBound (by simpa using pathBound)
+
 end QuotientLowerBoundCertificate
 
 /-- All goal representatives have distance at least n. -/
@@ -242,5 +419,214 @@ def checkUniqueKeys (g : Graph) : Bool := Id.run do
     if keys.contains state.key then return false
     keys := keys.insert state.key
   return true
+
+/-- A concrete state is represented by a graph node up to equal-shape labels. -/
+def Graph.Represents (g : Graph)
+    (state : State) (node : Fin g.states.size) : Prop :=
+  ∃ relabeling : PieceRelabeling,
+    ObservationalEq state
+      (relabelState relabeling
+        (g.states.getD node classic))
+
+/-- A checked quotient transition, including the local distance inequality. -/
+def Graph.CertificateEdge (g : Graph)
+    (source target : Fin g.states.size) : Prop :=
+  ∃ piece direction next relabeling,
+    tryMove (g.states.getD source classic) piece direction =
+      some next ∧
+    next = relabelState relabeling
+      (g.states.getD target classic) ∧
+    g.distance.getD target 0 ≤
+      g.distance.getD source 0 + 1
+
+def checkStartRepresentation
+    (g : Graph) (start : State) : Bool :=
+  (findShapeRelabeling start
+    (g.states.getD 0 classic)).isSome
+
+theorem findShapeRelabeling_isSome_sound
+    {source representative : State}
+    (h :
+      (findShapeRelabeling source representative).isSome = true) :
+    ∃ relabeling,
+      source = relabelState relabeling representative := by
+  cases found :
+      findShapeRelabeling source representative with
+  | none =>
+      simp [found] at h
+  | some relabeling =>
+      exact
+        ⟨relabeling,
+          (findShapeRelabeling_sound found).symm⟩
+
+theorem checkStartRepresentation_sound
+    {g : Graph} {start : State}
+    (h : checkStartRepresentation g start = true) :
+    ∃ relabeling,
+      start = relabelState relabeling
+        (g.states.getD 0 classic) := by
+  apply findShapeRelabeling_isSome_sound
+  exact h
+
+/-- Check the lower-bound condition at every stored goal representative. -/
+def checkIndexedGoalLowerBound
+    (g : Graph) (bound : Nat) : Bool :=
+  (List.range g.states.size).all fun index =>
+    !goal (g.states.getD index classic) ||
+      bound ≤ g.distance.getD index 0
+
+theorem checkIndexedGoalLowerBound_sound
+    {g : Graph} {bound : Nat}
+    (h : checkIndexedGoalLowerBound g bound = true)
+    (index : Nat) (indexLt : index < g.states.size)
+    (isGoal : goal (g.states.getD index classic) = true) :
+    bound ≤ g.distance.getD index 0 := by
+  unfold checkIndexedGoalLowerBound at h
+  rw [List.all_eq_true] at h
+  have checked := h index (List.mem_range.mpr indexLt)
+  rw [Bool.or_eq_true] at checked
+  rcases checked with notGoal | distanceBound
+  · rw [isGoal] at notGoal
+    contradiction
+  · exact of_decide_eq_true distanceBound
+
+/-- All executable conditions needed to construct the quotient certificate. -/
+def checkQuotientLowerBound
+    (g : Graph) (start : State) (bound : Nat) : Bool :=
+  decide (0 < g.states.size) &&
+  checkStartRepresentation g start &&
+  decide (g.distance.getD 0 0 = 0) &&
+  checkRelabeledClosed g &&
+  checkIndexedGoalLowerBound g bound
+
+/-- Turn successful executable graph checks into a proof-carrying certificate. -/
+def Graph.quotientLowerBoundCertificate
+    (g : Graph) (start : State) (bound : Nat)
+    (nonempty : 0 < g.states.size)
+    (startChecked : checkStartRepresentation g start = true)
+    (rootDistance : g.distance.getD 0 0 = 0)
+    (closed : checkRelabeledClosed g = true)
+    (goals : checkIndexedGoalLowerBound g bound = true) :
+    QuotientLowerBoundCertificate start bound where
+  Node := Fin g.states.size
+  Edge := g.CertificateEdge
+  represents := g.Represents
+  startNode := ⟨0, nonempty⟩
+  startRepresented := by
+    rcases checkStartRepresentation_sound startChecked with
+      ⟨relabeling, startEq⟩
+    exact
+      ⟨relabeling, by
+        rw [startEq]
+        intro piece
+        rfl⟩
+  simulateForward := by
+    intro source target node represented step
+    rcases represented with ⟨sourceRelabeling, sourceEq⟩
+    rcases step with ⟨action, executed⟩
+    have relabeledMove :
+        tryMove
+            (relabelState sourceRelabeling
+              (g.states.getD node classic))
+            action.piece action.direction =
+          some target := by
+      have sameMove :=
+        observational_tryMove sourceEq
+          action.piece action.direction
+      rw [executed] at sameMove
+      exact sameMove.symm
+    rcases tryMove_unrelabel relabeledMove with
+      ⟨actual, representativeMove, targetEq⟩
+    rcases checkRelabeledClosed_sound
+        closed node node.isLt representativeMove with
+      ⟨targetIndex, targetRelabeling, targetLt,
+        representedNext, distanceNext⟩
+    let targetNode : Fin g.states.size :=
+      ⟨targetIndex, targetLt⟩
+    refine ⟨targetNode, ?_, ?_⟩
+    · exact
+        ⟨sourceRelabeling.inverse action.piece,
+          action.direction, actual, targetRelabeling,
+          representativeMove, representedNext,
+          distanceNext⟩
+    · refine
+        ⟨sourceRelabeling.comp targetRelabeling, ?_⟩
+      rw [targetEq, representedNext, relabel_comp]
+      intro piece
+      rfl
+  simulateBackward := by
+    intro source sourceNode targetNode represented edge
+    rcases represented with ⟨sourceRelabeling, sourceEq⟩
+    rcases edge with
+      ⟨piece, direction, next, targetRelabeling,
+        executed, representedNext, _⟩
+    let target := relabelState sourceRelabeling next
+    have mappedMove :
+        tryMove
+            (relabelState sourceRelabeling
+              (g.states.getD sourceNode classic))
+            (sourceRelabeling.forward piece) direction =
+          some target := by
+      rw [tryMove_relabel, executed]
+      rfl
+    have concreteMove :
+        tryMove source
+            (sourceRelabeling.forward piece) direction =
+          some target := by
+      rw [observational_tryMove sourceEq]
+      exact mappedMove
+    refine
+      ⟨target,
+        ⟨⟨sourceRelabeling.forward piece, direction⟩,
+          concreteMove⟩,
+        ?_⟩
+    refine
+      ⟨sourceRelabeling.comp targetRelabeling, ?_⟩
+    change
+      ObservationalEq
+        (relabelState sourceRelabeling next)
+        (relabelState
+          (sourceRelabeling.comp targetRelabeling)
+          (g.states.getD targetNode classic))
+    rw [representedNext, relabel_comp]
+    intro candidate
+    rfl
+  potential := fun node => g.distance.getD node 0
+  startPotential := rootDistance
+  potentialStep := by
+    intro source target edge
+    rcases edge with
+      ⟨_, _, _, _, _, _, distanceStep⟩
+    exact distanceStep
+  goalLowerBound := by
+    intro target node represented isGoal
+    rcases represented with ⟨relabeling, targetEq⟩
+    apply checkIndexedGoalLowerBound_sound
+      goals node node.isLt
+    calc
+      goal (g.states.getD node classic) =
+          goal
+            (relabelState relabeling
+              (g.states.getD node classic)) :=
+        (goal_relabel relabeling _).symm
+      _ = goal target :=
+        (observational_goal targetEq).symm
+      _ = true := isGoal
+
+theorem checkQuotientLowerBound_sound
+    {g : Graph} {start : State} {bound : Nat}
+    (h : checkQuotientLowerBound g start bound = true) :
+    Nonempty (QuotientLowerBoundCertificate start bound) := by
+  unfold checkQuotientLowerBound at h
+  simp only [Bool.and_eq_true] at h
+  rcases h with
+    ⟨⟨⟨⟨sizeChecked, startChecked⟩,
+      rootChecked⟩, closed⟩, goals⟩
+  exact
+    ⟨g.quotientLowerBoundCertificate start bound
+      (of_decide_eq_true sizeChecked)
+      startChecked
+      (of_decide_eq_true rootChecked)
+      closed goals⟩
 
 end Huarongdao

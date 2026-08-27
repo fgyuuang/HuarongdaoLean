@@ -6,8 +6,13 @@ import Huarongdao.Paths
 import Huarongdao.StateSpace
 import Huarongdao.ClassicSolution
 import Huarongdao.Symmetry
+import Huarongdao.Relabeling
 import Huarongdao.Quotient
+import Huarongdao.MirrorQuotient
+import Huarongdao.CorridorCompression
+import Huarongdao.StateSpaceKernel
 import Huarongdao.Search
+import Huarongdao.ClassicCertificate
 import Huarongdao.Minimality
 import Huarongdao.ProofGame
 import Huarongdao.Bottleneck

@@ -13,12 +13,25 @@ const pieces = [
   { label: '兵三', cls: 'soldier', w: 1, h: 1 },
   { label: '兵四', cls: 'soldier', w: 1, h: 1 }
 ];
-const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length'.split(' ');
+const query = new URLSearchParams(location.search);
+const requestedStateSpace = query.get('space');
+const stateSpaceLayer = ['shape', 'mirror', 'corridor'].includes(requestedStateSpace)
+  ? requestedStateSpace
+  : 'mirror';
+const isShapeSpace = stateSpaceLayer === 'shape';
+const isMirrorSpace = stateSpaceLayer === 'mirror';
+const isCorridorSpace = stateSpaceLayer === 'corridor';
+const dataFiles = {
+  shape: { graph: 'graph.json', layout: 'layout.json' },
+  mirror: { graph: 'graph.mirror.json', layout: 'layout.mirror.json' },
+  corridor: { graph: 'graph.corridor.json', layout: 'layout.corridor.json' }
+}[stateSpaceLayer];
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length'.split(' ');
 const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
-let graphData, layoutData, outgoing, shortestGoalDistance = 0;
-let current = 0, selected = null, history = [0], historyKinds = [], hintPath = [];
-let playerMoves = 0, navigationUsed = false, shownGoal = null;
+let graphData, layoutData, parentGraphData = null, outgoing, shortestGoalDistance = 0, shortestOperationDistance = 0;
+let current = 0, selected = null, history = [0], historyKinds = [], historyEdges = [], hintPath = [];
+let historyCosts = [], playerMoves = 0, playerOperations = 0, navigationUsed = false, shownGoal = null;
 let graphMode = 'overview', selectionMode = 'end', routeStart = 0, routeEnd = null, routePath = [];
 let routeStartPinned = false;
 let animationToken = 0, isAnimating = false, suppressCompletion = false;
@@ -43,9 +56,12 @@ scene.add(graphGroup);
 const raycaster = new THREE.Raycaster();
 raycaster.params.Points.threshold = 0.8;
 const pointer = new THREE.Vector2();
-let pointCloud = null, overviewPoints = null, overviewEdges = null, explorePoints = null, exploreEdges = null;
+let pointCloud = null, overviewPoints = null, overviewEdges = null, overviewMacroEdges = null, overviewEndpointPoints = null, contractionLines = null, explorePoints = null, exploreEdges = null;
 let pathLines = null, historyLines = null, currentMarker = null, startMarker = null, endMarker = null, edgePairs = [];
+let edgeWeights = new Map(), macroEndpointIds = new Set();
+let macroEdgeCount = 0;
 let graphPositions = null, graphCenter = new THREE.Vector3(), graphSize = 100, exploreNodeIds = [];
+let overviewVisualPositions = null, contractionPairs = [], contractionProgress = 1, contractionAnimationToken = 0;
 let pointerDown = null;
 let keyboardFocus = 'board';
 let graphKeyboardIndex = 0;
@@ -65,19 +81,39 @@ const exploreForce = {
 const defaultForceParams = { ...exploreForce.params };
 
 function isDarkTheme() { return document.documentElement.classList.contains('dark'); }
+function stateSpaceEdgeColor(dark = isDarkTheme()) {
+  if (isCorridorSpace) return dark ? '#78bddc' : '#2f789d';
+  return dark ? '#76807b' : '#7a857f';
+}
+function stateSpaceEdgeOpacity(dark = isDarkTheme()) {
+  return isCorridorSpace ? (dark ? 0.38 : 0.46) : (dark ? 0.16 : 0.28);
+}
 function updateSceneTheme() {
   const dark = isDarkTheme();
   scene.background = new THREE.Color(dark ? 0x1b1f1c : 0xf2f3ef);
   if (overviewPoints) overviewPoints.material.color.set(dark ? 0xaab3ae : 0x59635e);
   if (overviewEdges) {
     overviewEdges.material.color.set(dark ? 0x76807b : 0x7a857f);
-    overviewEdges.material.opacity = dark ? 0.16 : 0.28;
+    overviewEdges.material.opacity = isCorridorSpace ? (dark ? 0.16 : 0.24) : stateSpaceEdgeOpacity(dark);
+  }
+  if (overviewMacroEdges) {
+    overviewMacroEdges.material.color.set(dark ? 0x78bddc : 0x2f789d);
+    overviewMacroEdges.material.opacity = dark ? 0.64 : 0.78;
+  }
+  if (overviewEndpointPoints) {
+    overviewEndpointPoints.material.color.set(dark ? 0xf0c36a : 0xc47a1c);
+  }
+  if (contractionLines) {
+    contractionLines.material.color.set(dark ? 0xd6a342 : 0xa66f12);
+    const lineBase = dark ? 0.12 : 0.07;
+    contractionLines.material.opacity =
+      lineBase * (0.25 + 0.75 * Math.sin(Math.PI * contractionProgress));
   }
   if (forceGraph) {
     forceGraph
       .backgroundColor(dark ? '#1b1f1c' : '#f2f3ef')
       .nodeColor(forceNodeColor)
-      .linkColor(() => dark ? '#77817c' : '#727c77')
+      .linkColor(link => link.macro ? (dark ? '#78bddc' : '#2f789d') : (dark ? '#76807b' : '#7a857f'))
       .refresh();
   }
   if (graphData && graphPositions) rebuildExploreGraph();
@@ -86,27 +122,43 @@ function updateSceneTheme() {
 updateSceneTheme();
 
 async function loadGraph() {
-  const [graphResponse, layoutResponse] = await Promise.all([fetch('graph.json'), fetch('layout.json')]);
-  if (!graphResponse.ok) throw new Error('graph.json unavailable');
-  if (!layoutResponse.ok) throw new Error('layout.json unavailable');
+  ui['state-space-layer'].value = stateSpaceLayer;
+  const requests = [fetch(dataFiles.graph), fetch(dataFiles.layout)];
+  if (isCorridorSpace) requests.push(fetch('graph.mirror.json'));
+  const [graphResponse, layoutResponse, parentResponse] = await Promise.all(requests);
+  if (!graphResponse.ok) throw new Error(`${dataFiles.graph} unavailable`);
+  if (!layoutResponse.ok) throw new Error(`${dataFiles.layout} unavailable`);
   graphData = await graphResponse.json();
   layoutData = await layoutResponse.json();
+  if (parentResponse) {
+    if (!parentResponse.ok) throw new Error('graph.mirror.json unavailable');
+    parentGraphData = await parentResponse.json();
+  }
   if (layoutData.coordinates.length !== graphData.states.length) throw new Error('Layout/state count mismatch');
   outgoing = Array.from({ length: graphData.states.length }, () => []);
   for (const edge of graphData.edges) outgoing[edge.source].push(edge);
   ui['state-count'].textContent = graphData.meta.stateCount.toLocaleString();
   ui['edge-count'].textContent = graphData.meta.edgeCount.toLocaleString();
-  ui['depth-count'].textContent = Math.max(...graphData.states.map(state => state.distance));
+  ui['depth-count'].textContent = Math.max(...graphData.states.map(state =>
+    isCorridorSpace ? state.operationDistance : state.distance));
   ui['explored-count'].textContent = graphData.states.length.toLocaleString();
-  shortestGoalDistance = Math.min(...graphData.states.filter(state => state.goal).map(state => state.distance));
+  shortestGoalDistance = graphData.meta.primitiveShortestGoalDistance ??
+    Math.min(...graphData.states.filter(state => state.goal).map(state => state.distance));
+  shortestOperationDistance = graphData.meta.operationShortestGoalDistance || shortestGoalDistance;
+  document.documentElement.dataset.stateSpace = stateSpaceLayer;
+  ui['quotient-contract']?.closest('.quotient-contraction')?.toggleAttribute('hidden', !isMirrorSpace);
+  document.getElementById('macro-edge-legend')?.toggleAttribute('hidden', !isCorridorSpace);
+  document.getElementById('macro-endpoint-legend')?.toggleAttribute('hidden', !isCorridorSpace);
   buildFullGraph();
   syncRouteControls();
+  const loadingTitle = ui.loading?.querySelector('strong');
+  if (loadingTitle) loadingTitle.textContent = `载入 ${graphData.meta.stateCount.toLocaleString()} 个状态节点`;
   ui.loading.classList.add('hidden');
   renderState(0, false);
   requestAnimationFrame(fitGraph);
 }
 
-function renderState(id, pushHistory = true, moveText = '', transitionKind = 'graph') {
+function renderState(id, pushHistory = true, moveText = '', transitionKind = 'graph', transitionEdge = null) {
   if (!graphData?.states[id]) return;
   const previous = current;
   const changed = previous !== id;
@@ -116,7 +168,15 @@ function renderState(id, pushHistory = true, moveText = '', transitionKind = 'gr
     if (history.at(-1) !== id) {
       history.push(id);
       historyKinds.push(transitionKind);
-      if (transitionKind === 'move') playerMoves += 1;
+      const traversedEdge = transitionEdge ||
+        outgoing[previous]?.find(edge => edge.target === id) || null;
+      historyEdges.push(traversedEdge);
+      const primitiveCost = traversedEdge?.weight || 1;
+      historyCosts.push(primitiveCost);
+      if (transitionKind === 'move') {
+        playerMoves += primitiveCost;
+        playerOperations += 1;
+      }
       else navigationUsed = true;
     }
     if (!isAnimating) hintPath = [];
@@ -135,7 +195,9 @@ function renderState(id, pushHistory = true, moveText = '', transitionKind = 'gr
     wrap.append(button); ui.board.append(wrap);
   });
   ui['node-id'].textContent = '#' + id;
-  ui.distance.textContent = state.distance + ' 步';
+  ui.distance.textContent = isCorridorSpace
+    ? state.primitiveDistance + ' 步 / ' + state.operationDistance + ' 操作'
+    : state.distance + ' 步';
   ui.degree.textContent = outgoing[id].length;
   ui['last-move'].textContent = moveText || (state.goal ? '曹操已到达出口' : '三维探索图已同步');
   ui['status-badge'].textContent = state.goal ? '已完成' : '探索中';
@@ -143,7 +205,9 @@ function renderState(id, pushHistory = true, moveText = '', transitionKind = 'gr
   ui['lean-valid'].innerHTML = '<i></i>true';
   ui['lean-goal'].textContent = String(state.goal);
   const latestKind = changed && pushHistory ? transitionKind : historyKinds.at(-1);
-  ui['lean-transition'].textContent = latestKind === 'move' || latestKind === 'route' ? 'tryMove = some' : latestKind === 'graph' ? 'BFS reachable' : 'initial';
+  ui['lean-transition'].textContent = isCorridorSpace && changed
+    ? 'CorridorMacroStep'
+    : latestKind === 'move' || latestKind === 'route' ? 'tryMove = some' : latestKind === 'graph' ? 'BFS reachable' : 'initial';
   if (graphMode === 'explore' && changed) rebuildExploreGraph();
   updateGraphState();
   updateProofTrace();
@@ -169,7 +233,8 @@ function randomWalkStep() {
   const withoutBacktrack = source.filter(edge => edge.target !== previous);
   const pool = fresh.length ? fresh : (withoutBacktrack.length ? withoutBacktrack : source);
   const edge = pool[Math.floor(Math.random() * pool.length)];
-  renderState(edge.target, true, '随机游走：' + pieces[edge.piece].label + '向' + edge.direction + ' · #' + edge.target, 'move');
+  const macroText = edge.weight > 1 ? ' · 归并 ' + edge.weight + ' 步' : '';
+  renderState(edge.target, true, '随机游走：' + pieces[edge.piece].label + '向' + edge.direction + macroText + ' · #' + edge.target, 'move', edge);
 }
 function setRandomWalk(enabled) {
   if (!enabled) { stopRandomWalk(); return; }
@@ -184,7 +249,8 @@ function move(direction) {
   if (selected == null) { ui.selection.textContent = '请先选择棋子'; return; }
   const edge = outgoing[current].find(item => item.piece === selected && item.direction === direction);
   if (!edge) { ui['last-move'].textContent = pieces[selected].label + '不能向' + direction + '移动'; return; }
-  renderState(edge.target, true, pieces[selected].label + '向' + direction + ' · Lean 合法边 #' + edge.target, 'move');
+  const macroText = edge.weight > 1 ? ' · 决策骨架将 ' + edge.weight + ' 步归并为一次操作' : '';
+  renderState(edge.target, true, pieces[selected].label + '向' + direction + macroText + ' · #' + edge.target, 'move', edge);
 }
 
 document.querySelectorAll('[data-dir]').forEach(button => button.onclick = () => move(button.dataset.dir));
@@ -222,7 +288,8 @@ function navigateGraphByKeyboard(direction) {
   const pool = directional.length ? directional : candidates;
   const edge = pool[graphKeyboardIndex % pool.length];
   graphKeyboardIndex = (graphKeyboardIndex + 1) % pool.length;
-  renderState(edge.target, true, '状态图键盘前进：' + direction + ' · #' + current + ' → #' + edge.target, 'graph');
+  const macroText = edge.weight > 1 ? ' · ' + edge.weight + ' 个底层步骤' : '';
+  renderState(edge.target, true, '状态图键盘前进：' + direction + macroText + ' · #' + current + ' → #' + edge.target, 'graph', edge);
 }
 function selectExploredNodeByKeyboard(step) {
   const ids = [...exploredNodes].filter(id => id !== current);
@@ -262,7 +329,12 @@ document.getElementById('undo').onclick = () => {
   if (history.length > 1) {
     history.pop();
     const removedKind = historyKinds.pop();
-    if (removedKind === 'move') playerMoves = Math.max(0, playerMoves - 1);
+    const removedCost = historyCosts.pop() || 1;
+    historyEdges.pop();
+    if (removedKind === 'move') {
+      playerMoves = Math.max(0, playerMoves - removedCost);
+      playerOperations = Math.max(0, playerOperations - 1);
+    }
     navigationUsed = historyKinds.some(kind => kind !== 'move');
     renderState(history.at(-1), false, '已撤回，探索图保留已发现节点');
   }
@@ -270,8 +342,8 @@ document.getElementById('undo').onclick = () => {
 document.getElementById('reset').onclick = () => {
   cancelAnimation();
   stopRandomWalk();
-  history = [0]; historyKinds = []; hintPath = []; selected = null; current = 0;
-  playerMoves = 0; navigationUsed = false; shownGoal = null;
+  history = [0]; historyKinds = []; historyEdges = []; historyCosts = []; hintPath = []; selected = null; current = 0;
+  playerMoves = 0; playerOperations = 0; navigationUsed = false; shownGoal = null;
   routeStart = 0; routeEnd = null; routePath = []; routeStartPinned = false;
   exploreForce.positions.clear(); exploreForce.velocities.clear();
   exploredNodes.clear(); exploredNodes.add(0); exploredEdges.clear();
@@ -300,7 +372,8 @@ function findGoalPath() {
   if (next == null) ui['last-move'].textContent = '当前已经是目标状态';
   else {
     const edge = outgoing[current].find(item => item.target === next);
-    ui['last-move'].textContent = '已规划到最近终点：' + (hintPath.length - 1) + ' 步；点击“导航到终点”或按 Enter 播放';
+    ui['last-move'].textContent = '已规划到最近终点：' + (hintPath.length - 1) +
+      (isCorridorSpace ? ' 次归并操作' : ' 步') + '；点击“导航到终点”或按 Enter 播放';
   }
 }
 
@@ -317,46 +390,191 @@ const pointTexture = makePointTexture();
 function buildFullGraph() {
   const count = graphData.states.length;
   const raw = layoutData.coordinates;
+  const rawPairs = isMirrorSpace && layoutData.mirrorPairs?.length === count
+    ? layoutData.mirrorPairs
+    : raw.map(coordinate => ({ a: coordinate.slice(0, 3), b: coordinate.slice(0, 3), fixed: true }));
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-  for (const coordinate of raw) for (let axis = 0; axis < 3; axis += 1) {
-    min[axis] = Math.min(min[axis], coordinate[axis]); max[axis] = Math.max(max[axis], coordinate[axis]);
+  for (const pair of rawPairs) for (const coordinate of [pair.a, pair.b]) for (let axis = 0; axis < 3; axis += 1) {
+    min[axis] = Math.min(min[axis], coordinate[axis]);
+    max[axis] = Math.max(max[axis], coordinate[axis]);
   }
   const center = min.map((value, axis) => (value + max[axis]) / 2);
   const scale = 110 / Math.max(...max.map((value, axis) => value - min[axis]));
   graphPositions = new Float32Array(count * 3);
-  for (let id = 0; id < count; id += 1) for (let axis = 0; axis < 3; axis += 1) graphPositions[id * 3 + axis] = (raw[id][axis] - center[axis]) * scale;
+  contractionPairs = [];
+  let visualCount = count;
+  for (const pair of rawPairs) if (!pair.fixed) visualCount += 1;
+  overviewVisualPositions = new Float32Array(visualCount * 3);
+  const overviewNodeIds = new Int32Array(visualCount);
+
+  for (let id = 0; id < count; id += 1) {
+    const merged = raw[id].slice(0, 3).map((value, axis) => (value - center[axis]) * scale);
+    graphPositions.set(merged, id * 3);
+    overviewVisualPositions.set(merged, id * 3);
+    overviewNodeIds[id] = id;
+  }
+
+  let ghostIndex = count;
+  for (let id = 0; id < count; id += 1) {
+    const pair = rawPairs[id];
+    if (pair.fixed) continue;
+    const a = pair.a.map((value, axis) => (value - center[axis]) * scale);
+    const b = pair.b.map((value, axis) => (value - center[axis]) * scale);
+    const merged = Array.from(graphPositions.subarray(id * 3, id * 3 + 3));
+    overviewVisualPositions.set(merged, ghostIndex * 3);
+    overviewNodeIds[ghostIndex] = id;
+    contractionPairs.push({ nodeId: id, mainIndex: id, ghostIndex, a, b, merged });
+    ghostIndex += 1;
+  }
 
   const pointGeometry = new THREE.BufferGeometry();
-  pointGeometry.setAttribute('position', new THREE.BufferAttribute(graphPositions, 3));
-  overviewPoints = new THREE.Points(pointGeometry, new THREE.PointsMaterial({ color: 0xaab3ae, size: 1.5, sizeAttenuation: false, map: pointTexture, alphaTest: 0.45, transparent: true, opacity: 0.62, depthWrite: false }));
-  overviewPoints.userData.nodeIds = null;
+  pointGeometry.setAttribute('position', new THREE.BufferAttribute(overviewVisualPositions, 3));
+  overviewPoints = new THREE.Points(pointGeometry, new THREE.PointsMaterial({ color: 0xaab3ae, size: 2.1, sizeAttenuation: false, map: pointTexture, alphaTest: 0.45, transparent: true, opacity: 0.84, depthWrite: false }));
+  overviewPoints.userData.nodeIds = overviewNodeIds;
   overviewGroup.add(overviewPoints);
 
-  const seen = new Set(); edgePairs = [];
+  const contractionGeometry = new THREE.BufferGeometry();
+  contractionGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(contractionPairs.length * 6), 3));
+  contractionLines = new THREE.LineSegments(contractionGeometry, new THREE.LineBasicMaterial({ color: 0xa66f12, transparent: true, opacity: 0.045, depthWrite: false }));
+  overviewGroup.add(contractionLines);
+
+  const seen = new Set(); edgeWeights = new Map(); macroEndpointIds = new Set(); edgePairs = [];
   for (const edge of graphData.edges) {
     const key = edgeKey(edge.source, edge.target);
-    if (seen.has(key)) continue;
-    seen.add(key); edgePairs.push([edge.source, edge.target]);
+    const weight = Math.max(edgeWeights.get(key) || 1, edge.weight || 1);
+    edgeWeights.set(key, weight);
+    if (!seen.has(key)) {
+      seen.add(key);
+      edgePairs.push([edge.source, edge.target]);
+    }
   }
-  const edgePositions = new Float32Array(edgePairs.length * 6);
-  edgePairs.forEach(([source, target], index) => {
-    edgePositions.set(graphPositions.subarray(source * 3, source * 3 + 3), index * 6);
-    edgePositions.set(graphPositions.subarray(target * 3, target * 3 + 3), index * 6 + 3);
-  });
-  const edgeGeometry = new THREE.BufferGeometry();
-  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
-  overviewEdges = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({ color: 0x76807b, transparent: true, opacity: 0.16, depthWrite: false }));
+  if (isCorridorSpace) {
+    for (const [source, target] of edgePairs) {
+      if ((edgeWeights.get(edgeKey(source, target)) || 1) <= 1) continue;
+      macroEndpointIds.add(source);
+      macroEndpointIds.add(target);
+    }
+  }
+  const ordinaryEdges = edgePairs.filter(([source, target]) => (edgeWeights.get(edgeKey(source, target)) || 1) === 1);
+  const macroEdges = edgePairs.filter(([source, target]) => (edgeWeights.get(edgeKey(source, target)) || 1) > 1);
+  macroEdgeCount = macroEdges.length;
+  function edgeGeometryFor(pairs) {
+    const positions = new Float32Array(pairs.length * 6);
+    pairs.forEach(([source, target], index) => {
+      positions.set(graphPositions.subarray(source * 3, source * 3 + 3), index * 6);
+      positions.set(graphPositions.subarray(target * 3, target * 3 + 3), index * 6 + 3);
+    });
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    return geometry;
+  }
+  overviewEdges = new THREE.LineSegments(edgeGeometryFor(ordinaryEdges), new THREE.LineBasicMaterial({
+    color: isDarkTheme() ? 0x76807b : 0x7a857f,
+    transparent: true,
+    opacity: isCorridorSpace ? (isDarkTheme() ? 0.16 : 0.24) : stateSpaceEdgeOpacity(),
+    depthWrite: false
+  }));
   overviewGroup.add(overviewEdges);
+  overviewMacroEdges = new THREE.LineSegments(edgeGeometryFor(macroEdges), new THREE.LineBasicMaterial({
+    color: isDarkTheme() ? 0x78bddc : 0x2f789d,
+    transparent: true,
+    opacity: isDarkTheme() ? 0.64 : 0.78,
+    depthWrite: false
+  }));
+  overviewGroup.add(overviewMacroEdges);
+  if (isCorridorSpace && macroEndpointIds.size) {
+    const endpointPositions = new Float32Array(macroEndpointIds.size * 3);
+    [...macroEndpointIds].forEach((id, index) => endpointPositions.set(graphPositions.subarray(id * 3, id * 3 + 3), index * 3));
+    const endpointGeometry = new THREE.BufferGeometry();
+    endpointGeometry.setAttribute('position', new THREE.BufferAttribute(endpointPositions, 3));
+    overviewEndpointPoints = new THREE.Points(endpointGeometry, new THREE.PointsMaterial({
+      color: isDarkTheme() ? 0xf0c36a : 0xc47a1c,
+      size: 5.2,
+      sizeAttenuation: false,
+      map: pointTexture,
+      alphaTest: 0.35,
+      transparent: true,
+      opacity: 0.98,
+      depthWrite: false
+    }));
+    overviewGroup.add(overviewEndpointPoints);
+  }
 
   currentMarker = makeRingMarker('#9f2d2d', '#ffffff', 22);
   startMarker = makeRingMarker('#d6a342', '#6f531f', 16);
   endMarker = makeRingMarker('#4ac6b8', '#1f6e66', 16);
   graphGroup.add(currentMarker, startMarker, endMarker);
   graphCenter.set(0, 0, 0); graphSize = 110;
+  updateQuotientContraction(1);
   prepareForceGraphData();
   rebuildExploreGraph();
   setGraphMode('overview', false);
   updateSceneTheme();
+}
+
+function updateQuotientContraction(value) {
+  contractionProgress = THREE.MathUtils.clamp(Number(value) || 0, 0, 1);
+  if (overviewVisualPositions && overviewPoints && contractionLines) {
+    const linePositions = contractionLines.geometry.attributes.position.array;
+    for (let index = 0; index < contractionPairs.length; index += 1) {
+      const pair = contractionPairs[index];
+      const main = pair.a.map((coordinate, axis) =>
+        THREE.MathUtils.lerp(coordinate, pair.merged[axis], contractionProgress));
+      const ghost = pair.b.map((coordinate, axis) =>
+        THREE.MathUtils.lerp(coordinate, pair.merged[axis], contractionProgress));
+      overviewVisualPositions.set(main, pair.mainIndex * 3);
+      overviewVisualPositions.set(ghost, pair.ghostIndex * 3);
+      linePositions.set(main, index * 6);
+      linePositions.set(ghost, index * 6 + 3);
+    }
+    overviewPoints.geometry.attributes.position.needsUpdate = true;
+    contractionLines.geometry.attributes.position.needsUpdate = true;
+    const lineBase = isDarkTheme() ? 0.12 : 0.07;
+    contractionLines.material.opacity =
+      lineBase * (0.25 + 0.75 * Math.sin(Math.PI * contractionProgress));
+    contractionLines.visible = contractionProgress < 0.999;
+  }
+  if (ui['quotient-contract']) ui['quotient-contract'].value = Math.round(contractionProgress * 100);
+  if (ui['quotient-contract-value']) ui['quotient-contract-value'].textContent = Math.round(contractionProgress * 100) + '%';
+  if (ui['quotient-contract-toggle']) ui['quotient-contract-toggle'].textContent = contractionProgress >= 0.5 ? '展开' : '合并';
+  if (graphMode === 'overview' && graphData) {
+    if (isCorridorSpace) {
+      ui['graph-count-label'].textContent = '关键节点';
+      ui['explored-count'].textContent = graphData.states.length.toLocaleString();
+      ui['graph-summary'].textContent = '决策骨架 · 当前 #' + current + ' · ' +
+        macroEdgeCount.toLocaleString() + ' 条蓝色归并边 · ' +
+        (edgePairs.length - macroEdgeCount).toLocaleString() + ' 条灰色单步边 · ' +
+        graphData.meta.suppressedStateCount.toLocaleString() + ' 个中间状态已隐藏';
+      return;
+    }
+    if (isShapeSpace) {
+      ui['graph-count-label'].textContent = '同形商节点';
+      ui['explored-count'].textContent = graphData.states.length.toLocaleString();
+      ui['graph-summary'].textContent = '同形标签商 · 当前 #' + current + ' · ' +
+        graphData.states.length.toLocaleString() + ' 个状态 · ' +
+        edgePairs.length.toLocaleString() + ' 条显示边';
+      return;
+    }
+    const visualCount = graphData.states.length + (contractionProgress < 0.999 ? contractionPairs.length : 0);
+    ui['graph-count-label'].textContent = contractionProgress < 0.999 ? '原图点位' : '商图节点';
+    ui['explored-count'].textContent = visualCount.toLocaleString();
+    ui['graph-summary'].textContent = '镜像两端向中点粘连 · 当前 #' + current + ' · 合并度 ' + Math.round(contractionProgress * 100) + '% · ' + edgePairs.length.toLocaleString() + ' 条商边';
+  }
+}
+
+function animateQuotientContraction(target) {
+  const start = contractionProgress;
+  const token = ++contractionAnimationToken;
+  const startedAt = performance.now();
+  const duration = 720;
+  function frame(now) {
+    if (token !== contractionAnimationToken) return;
+    const elapsed = Math.min(1, (now - startedAt) / duration);
+    const eased = elapsed < 0.5 ? 2 * elapsed * elapsed : 1 - Math.pow(-2 * elapsed + 2, 2) / 2;
+    updateQuotientContraction(THREE.MathUtils.lerp(start, target, eased));
+    if (elapsed < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 }
 
 function makeRingMarker(primary, secondary, pixelDiameter) {
@@ -389,11 +607,17 @@ function prepareForceGraphData() {
   forceLinks = edgePairs.map(([source, target]) => {
     const a = forceNodes[source], b = forceNodes[target];
     const restLength = Math.hypot(a.rx - b.rx, a.ry - b.ry, a.rz - b.rz);
-    return { source, target, restLength: Math.max(0.8, Math.min(80, restLength)) };
+    return {
+      source,
+      target,
+      macro: isCorridorSpace && (edgeWeights.get(edgeKey(source, target)) || 1) > 1,
+      restLength: Math.max(0.8, Math.min(80, restLength))
+    };
   });
 }
 
 function forceNodeColor(node) {
+  if (isCorridorSpace && macroEndpointIds.has(Number(node.id))) return isDarkTheme() ? '#f0c36a' : '#c47a1c';
   if (node.goal) return isDarkTheme() ? '#56c7b9' : '#28736d';
   if (node.goalDistance <= 20) return isDarkTheme() ? '#d4a651' : '#9a6b25';
   return isDarkTheme() ? '#aab3ae' : '#59635e';
@@ -470,7 +694,7 @@ function ensureForceGraph() {
   if (!window.ForceGraph3D) throw new Error('3d-force-graph runtime unavailable');
   const container = ui['graph-force'];
   const rect = ui['graph-wrap'].getBoundingClientRect();
-  ui['force3d-status'].textContent = '正在创建 25,955 个 3D 节点';
+  ui['force3d-status'].textContent = graphData ? `正在创建 ${graphData.meta.stateCount.toLocaleString()} 个 3D 节点` : '正在创建 3D 节点';
   forceGraph = new window.ForceGraph3D(container, {
     controlType: 'orbit',
     rendererConfig: { antialias: false, alpha: false, powerPreference: 'high-performance' }
@@ -486,8 +710,10 @@ function ensureForceGraph() {
     .nodeColor(forceNodeColor)
     .nodeOpacity(0.9)
     .nodeLabel(() => '')
-    .linkColor(() => isDarkTheme() ? '#77817c' : '#727c77')
-    .linkOpacity(0.075)
+    .linkColor(link => link.macro
+      ? (isDarkTheme() ? '#78bddc' : '#2f789d')
+      : (isDarkTheme() ? '#76807b' : '#7a857f'))
+    .linkOpacity(isCorridorSpace ? 0.24 : 0.075)
     .linkWidth(0)
     .linkCurvature(0)
     .linkDirectionalParticles(0)
@@ -565,7 +791,14 @@ function nodePosition(id, target = new THREE.Vector3()) {
 function recordExploration(from, to) {
   exploredNodes.add(from); exploredNodes.add(to);
   const edge = outgoing[from]?.find(item => item.target === to) || outgoing[to]?.find(item => item.target === from);
-  if (edge) exploredEdges.set(edgeKey(from, to), { source: from, target: to });
+  if (edge) {
+    const key = edgeKey(from, to);
+    exploredEdges.set(key, {
+      source: from,
+      target: to,
+      macro: isCorridorSpace && (edgeWeights.get(key) || edge.weight || 1) > 1
+    });
+  }
 }
 function clearExploreGroup() {
   while (exploreGroup.children.length) {
@@ -606,7 +839,7 @@ function updateExploreForce(now) {
       fa.add(delta); forces.get(b).sub(delta);
     }
   }
-  for (const [source, target] of exploreForce.edges) {
+  for (const { source, target } of exploreForce.edges) {
     const a = exploreForce.positions.get(source), b = exploreForce.positions.get(target);
     const delta = b.clone().sub(a), distance = Math.max(0.001, delta.length());
     const force = delta.multiplyScalar(spring * (distance - rest) / distance);
@@ -625,7 +858,7 @@ function updateExploreForce(now) {
   positionAttribute.needsUpdate = true;
   if (exploreEdges) {
     const edgeAttribute = exploreEdges.geometry.getAttribute('position');
-    exploreForce.edges.forEach(([source, target], index) => {
+    exploreForce.edges.forEach(({ source, target }, index) => {
       edgeAttribute.setXYZ(index * 2, ...exploreForce.positions.get(source).toArray());
       edgeAttribute.setXYZ(index * 2 + 1, ...exploreForce.positions.get(target).toArray());
     });
@@ -646,7 +879,12 @@ function rebuildExploreGraph() {
   const shownEdges = new Map(exploredEdges);
   for (const edge of outgoing[current] || []) {
     nodeSet.add(edge.target);
-    shownEdges.set(edgeKey(edge.source, edge.target), { source: edge.source, target: edge.target });
+    const key = edgeKey(edge.source, edge.target);
+    shownEdges.set(key, {
+      source: edge.source,
+      target: edge.target,
+      macro: isCorridorSpace && (edgeWeights.get(key) || edge.weight || 1) > 1
+    });
   }
   exploreNodeIds = [...nodeSet];
   const positions = new Float32Array(exploreNodeIds.length * 3);
@@ -654,10 +892,13 @@ function rebuildExploreGraph() {
   const dark = isDarkTheme();
   const discoveredColor = new THREE.Color(dark ? 0xd3dbd7 : 0x34443d);
   const frontierColor = new THREE.Color(dark ? 0x61706a : 0x7a8982);
+  const endpointColor = new THREE.Color(dark ? 0xf0c36a : 0xc47a1c);
   exploreNodeIds.forEach((id, index) => {
     const position = seedExplorePosition(id, index);
     positions.set(position.toArray(), index * 3);
-    const color = exploredNodes.has(id) ? discoveredColor : frontierColor;
+    const color = isCorridorSpace && macroEndpointIds.has(id)
+      ? endpointColor
+      : exploredNodes.has(id) ? discoveredColor : frontierColor;
     colors.set([color.r, color.g, color.b], index * 3);
   });
   const pointGeometry = new THREE.BufferGeometry();
@@ -669,14 +910,31 @@ function rebuildExploreGraph() {
 
   const edges = [...shownEdges.values()];
   exploreForce.nodes = exploreNodeIds.slice();
-  exploreForce.edges = edges.map(edge => [edge.source, edge.target]);
+  exploreForce.edges = edges.map(edge => ({
+    source: edge.source,
+    target: edge.target,
+    macro: Boolean(edge.macro)
+  }));
   const linePositions = new Float32Array(edges.length * 6);
+  const lineColors = new Float32Array(edges.length * 6);
+  const ordinaryColor = new THREE.Color(dark ? 0xa9b8b1 : 0x65766e);
+  const macroColor = new THREE.Color(dark ? 0x78bddc : 0x2f789d);
   edges.forEach((edge, index) => {
     linePositions.set(exploreForce.positions.get(edge.source).toArray(), index * 6);
     linePositions.set(exploreForce.positions.get(edge.target).toArray(), index * 6 + 3);
+    const color = edge.macro ? macroColor : ordinaryColor;
+    lineColors.set([color.r, color.g, color.b, color.r, color.g, color.b], index * 6);
   });
-  const lineGeometry = new THREE.BufferGeometry(); lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
-  exploreEdges = new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({ color: dark ? 0xa9b8b1 : 0x65766e, transparent: true, opacity: dark ? 0.52 : 0.42, depthWrite: false }));
+  const lineGeometry = new THREE.BufferGeometry();
+  lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+  lineGeometry.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
+  exploreEdges = new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    transparent: true,
+    opacity: isCorridorSpace ? 0.68 : (dark ? 0.52 : 0.42),
+    depthWrite: false
+  }));
   exploreEdges.material.linewidth = exploreForce.params.lineWidth;
   exploreGroup.add(exploreEdges);
   exploreForce.running = true;
@@ -719,8 +977,20 @@ function updateGraphState() {
   if (pathLines) graphGroup.add(pathLines);
   syncForceMarkerPositions();
   if (graphMode === 'overview') {
-    ui['explored-count'].textContent = graphData.states.length.toLocaleString();
-    ui['graph-summary'].textContent = '参考全览 · 当前 #' + current + ' · ' + graphData.states.length.toLocaleString() + ' 个节点 · ' + edgePairs.length.toLocaleString() + ' 条连接';
+    updateQuotientContraction(contractionProgress);
+    if (isCorridorSpace) {
+      ui['graph-summary'].textContent = '决策骨架 · 当前 #' + current + ' · ' +
+        macroEdgeCount.toLocaleString() + ' 条蓝色归并边 · ' +
+        (edgePairs.length - macroEdgeCount).toLocaleString() + ' 条灰色单步边 · ' +
+        graphData.meta.suppressedStateCount.toLocaleString() + ' 个中间状态已隐藏 · 加权最短距离保持 ' + shortestGoalDistance;
+    } else if (isShapeSpace) {
+      ui['graph-summary'].textContent = '同形标签商 · 当前 #' + current + ' · ' +
+        graphData.states.length.toLocaleString() + ' 个状态 · ' +
+        edgePairs.length.toLocaleString() + ' 条显示边';
+    } else {
+      ui['graph-summary'].textContent = '镜像两端向中点粘连 · 当前 #' + current + ' · 合并度 ' +
+        Math.round(contractionProgress * 100) + '% · ' + edgePairs.length.toLocaleString() + ' 条商边';
+    }
   } else if (graphMode === 'force') {
     ui['explored-count'].textContent = graphData.states.length.toLocaleString();
     ui['graph-summary'].textContent = '3d-force-graph · 当前 #' + current + ' · ' + (forcePinned ? '参考坐标固定' : 'd3-force-3d 有限松弛') + ' · ' + edgePairs.length.toLocaleString() + ' 条连接';
@@ -759,7 +1029,8 @@ function selectRouteNode(id) {
     // An explicitly pinned start remains available through “选择起点”.
     if (!routeStartPinned) routeStart = current;
     routeEnd = id; routePath = shortestPath(routeStart, routeEnd);
-    ui['last-move'].textContent = '从当前节点 #' + routeStart + ' → #' + routeEnd + '，共 ' + Math.max(0, routePath.length - 1) + ' 条合法边';
+    ui['last-move'].textContent = '从当前节点 #' + routeStart + ' → #' + routeEnd + '，共 ' +
+      Math.max(0, routePath.length - 1) + (isCorridorSpace ? ' 次归并操作' : ' 条合法边');
     routeStartPinned = false;
   }
   syncRouteControls(); updateGraphState();
@@ -784,12 +1055,20 @@ async function animateSelectedRoute() {
     const from = sequence[index - 1], to = sequence[index];
     const edge = outgoing[from].find(item => item.target === to);
     if (!edge) throw new Error('Animated route contains a non-Lean edge: ' + from + ' -> ' + to);
-    renderState(to, true, '路径动画 ' + index + '/' + (sequence.length - 1) + '：' + pieces[edge.piece].label + '向' + edge.direction, 'route');
+    const macroText = edge.weight > 1 ? ' · 展开为 ' + edge.weight + ' 个镜像商步骤' : '';
+    renderState(to, true, '路径动画 ' + index + '/' + (sequence.length - 1) + '：' +
+      pieces[edge.piece].label + '向' + edge.direction + macroText, 'route', edge);
     await wait(55);
   }
   if (token !== animationToken) return;
   isAnimating = false; suppressCompletion = false; syncRouteControls();
-  ui['last-move'].textContent = '已沿 ' + (sequence.length - 1) + ' 条 Lean 合法边到达 #' + current;
+  const primitiveCost = sequence.slice(1).reduce((sum, target, index) => {
+    const edge = outgoing[sequence[index]].find(item => item.target === target);
+    return sum + (edge?.weight || 1);
+  }, 0);
+  ui['last-move'].textContent = isCorridorSpace
+    ? '已执行 ' + (sequence.length - 1) + ' 次归并操作，展开为 ' + primitiveCost + ' 条镜像商边，到达 #' + current
+    : '已沿 ' + primitiveCost + ' 条 Lean 合法边到达 #' + current;
   if (graphData.states[current].goal && shownGoal !== current) { shownGoal = current; showCompletion(graphData.states[current]); }
 }
 function locateCurrent() {
@@ -819,6 +1098,8 @@ function setGraphMode(mode, refit = true) {
   const previousMode = graphMode;
   if (previousMode === 'force' && mode !== 'force' && forceGraph) forceGraph.pauseAnimation();
   graphMode = mode;
+  if (ui['quotient-contract']) ui['quotient-contract'].disabled = mode !== 'overview' || !isMirrorSpace;
+  if (ui['quotient-contract-toggle']) ui['quotient-contract-toggle'].disabled = mode !== 'overview' || !isMirrorSpace;
   overviewGroup.visible = mode === 'overview'; exploreGroup.visible = mode === 'explore';
   pointCloud = mode === 'overview' ? overviewPoints : mode === 'explore' ? explorePoints : null;
   ui.graph.hidden = mode === 'force';
@@ -996,6 +1277,21 @@ document.getElementById('pick-start').onclick = () => { selectionMode = 'start';
 document.getElementById('pick-end').onclick = () => { selectionMode = 'end'; syncRouteControls(); };
 document.getElementById('route-play').onclick = animateSelectedRoute;
 document.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => setGraphMode(button.dataset.mode));
+ui['quotient-contract']?.addEventListener('input', event => {
+  contractionAnimationToken += 1;
+  updateQuotientContraction(Number(event.target.value) / 100);
+  updateGraphState();
+});
+ui['quotient-contract-toggle']?.addEventListener('click', () => {
+  animateQuotientContraction(contractionProgress >= 0.5 ? 0 : 1);
+});
+ui['state-space-layer']?.addEventListener('change', event => {
+  const nextUrl = new URL(location.href);
+  if (event.target.value === 'mirror') nextUrl.searchParams.delete('space');
+  else nextUrl.searchParams.set('space', event.target.value);
+  nextUrl.searchParams.delete('view');
+  location.href = nextUrl.toString();
+});
 document.getElementById('theme').onclick = () => { document.documentElement.classList.toggle('dark'); updateSceneTheme(); };
 
 const leanPieceNames = ['caoCao', 'guanYu', 'zhangFei', 'zhaoYun', 'maChao', 'huangZhong', 'soldier1', 'soldier2', 'soldier3', 'soldier4'];
@@ -1023,15 +1319,39 @@ function sameShapePositions(actual, representative) {
 }
 function proofTraceSteps() {
   const steps = [];
+  let primitiveIndex = 0;
   for (let i = 1; i < history.length; i += 1) {
     const sourceId = history[i - 1], targetId = history[i];
-    const edge = (outgoing[sourceId] || []).find(candidate => candidate.target === targetId);
+    const edge = historyEdges[i - 1] ||
+      (outgoing[sourceId] || []).find(candidate => candidate.target === targetId);
     if (!edge) continue;
-    const source = graphData.states[sourceId], target = graphData.states[targetId];
-    const actual = movedPositions(source, edge);
-    const exact = samePositions(actual, target.positions);
-    steps.push({ index: i, sourceId, targetId, source, target, edge, actual, exact,
-      sameShape: exact || sameShapePositions(actual, target.positions) });
+    const primitiveEdges = edge.steps?.length ? edge.steps : [edge];
+    for (const primitiveEdge of primitiveEdges) {
+      primitiveIndex += 1;
+      const primitiveSourceId = primitiveEdge.source;
+      const primitiveTargetId = primitiveEdge.target;
+      const source = isCorridorSpace
+        ? parentGraphData.states[primitiveSourceId]
+        : graphData.states[primitiveSourceId];
+      const target = isCorridorSpace
+        ? parentGraphData.states[primitiveTargetId]
+        : graphData.states[primitiveTargetId];
+      const actual = movedPositions(source, primitiveEdge);
+      const exact = samePositions(actual, target.positions);
+      steps.push({
+        index: primitiveIndex,
+        macroIndex: i,
+        macroWeight: edge.weight || 1,
+        sourceId: primitiveSourceId,
+        targetId: primitiveTargetId,
+        source,
+        target,
+        edge: primitiveEdge,
+        actual,
+        exact,
+        sameShape: exact || sameShapePositions(actual, target.positions)
+      });
+    }
   }
   return steps;
 }
@@ -1039,6 +1359,20 @@ function leanAction(step) {
   return '⟨.' + leanPieceNames[step.edge.piece] + ', .' + leanDirectionNames[step.edge.direction] + '⟩';
 }
 function generatedProofCode(steps, quotient) {
+  if (isCorridorSpace) {
+    return `-- ${history.length - 1} corridor operations expand to ${steps.length} mirror-quotient steps.
+def currentCorridorWalk :
+    corridorTask.Walk corridorTask.initial currentAnchor :=
+  corridorCertificate
+
+def currentMirrorWalk :
+    MirrorShapeWalk mirrorShapeInitial currentAnchor.1 :=
+  corridorWalkExpand currentCorridorWalk
+
+example : currentMirrorWalk.length =
+    currentCorridorWalk.actions.sum :=
+  corridorWalkExpand_length currentCorridorWalk`;
+  }
   const end = history.at(-1) || 0;
   if (!steps.length) return `def currentPath : Path classic classic :=
   Path.nil classic`;
@@ -1064,26 +1398,37 @@ function updateProofTrace() {
   const quotient = quotientCount > 0;
   const target = history.at(-1) || 0;
   const goal = graphData.states[target]?.goal;
-  const claimType = goal ? (quotient ? 'QSolution state0' : (navigationUsed ? 'Solution state0' : 'CertifiedPlay state0')) : (quotient ? 'QPath state0 state' + target : 'Path state0 state' + target);
+  const claimType = isCorridorSpace
+    ? 'corridorTask.Walk anchor0 anchor' + target
+    : goal ? (quotient ? 'QSolution state0' : (navigationUsed ? 'Solution state0' : 'CertifiedPlay state0')) : (quotient ? 'QPath state0 state' + target : 'Path state0 state' + target);
   ui['proof-claim'].textContent = claimType;
-  ui['proof-explanation'].textContent = !steps.length
+  ui['proof-explanation'].textContent = isCorridorSpace
+    ? '当前记录包含 ' + Math.max(0, history.length - 1) + ' 次 CorridorMacroStep；经 corridorWalkExpand 展开为 ' + steps.length + ' 个 MirrorShapeStep，宏权重之和等于底层路径长度。'
+    : !steps.length
     ? '零步证明由 Path.nil state0 构造。每次合法移动都会在这里增加一个 cons 构造器。'
     : quotient
       ? '当前证明包含规范代表切换，因此整体类型是 QPath：每一步同时保存 tryMove 等式和 SameShape 代表证明。'
       : '当前所有目标都与 tryMove 的带标签结果完全相同，因此这些 cons 构造器组成精确 Path。';
   ui['proof-exact-count'].textContent = exactCount;
   ui['proof-quotient-count'].textContent = quotientCount;
-  ui['proof-length'].textContent = steps.length + ' steps';
+  ui['proof-length'].textContent = isCorridorSpace
+    ? Math.max(0, history.length - 1) + ' macro / ' + steps.length + ' primitive'
+    : steps.length + ' steps';
   ui['proof-step-list'].innerHTML = steps.length ? steps.map(step => {
     const piece = pieces[step.edge.piece].label, action = leanAction(step);
     return '<li class="proof-step ' + (step.exact ? '' : 'quotient') + '" data-index="' + step.index + '">' +
-      '<h4>#' + step.sourceId + ' → #' + step.targetId + '<span>' + (step.exact ? 'Step' : 'QStep') + '</span></h4>' +
+      '<h4>#' + step.sourceId + ' → #' + step.targetId + '<span>' +
+      (isCorridorSpace ? '宏 ' + step.macroIndex + ' · ' : '') + (step.exact ? 'Step' : 'QStep') + '</span></h4>' +
       '<div class="proof-equation">tryMove state' + step.sourceId + ' ' + escapeHtml(action) + '<br>= some actual' + step.index +
       '<br><b>动作：</b>' + piece + '向' + step.edge.direction + '</div>' +
       (step.exact ? '<div class="proof-constructor">actual' + step.index + ' = state' + step.targetId + ' · Path.cons</div>' :
         '<div class="proof-equation proof-represented">SameShape actual' + step.index + ' state' + step.targetId + ' = true</div><div class="proof-constructor">QPath.cons executed represented tail</div>') + '</li>';
-  }).join('') : '<div class="proof-empty">初始状态本身已有零步证明<code>Path.nil state0</code>移动一个棋子，观察证明项增加一个构造器。</div>';
-  let tree = '<div><b>' + (quotient ? 'QPath' : 'Path') + '</b> state0 state' + target + '</div>';
+  }).join('') : isCorridorSpace
+    ? '<div class="proof-empty">初始锚点具有零操作证明<code>Task.Walk.nil corridorTask.initial</code>每条宏边都可由 corridorWalkExpand 展开。</div>'
+    : '<div class="proof-empty">初始状态本身已有零步证明<code>Path.nil state0</code>移动一个棋子，观察证明项增加一个构造器。</div>';
+  let tree = isCorridorSpace
+    ? '<div><b>corridorTask.Walk</b> anchor0 anchor' + target + '<br><em>corridorWalkExpand</em> ↓</div>'
+    : '<div><b>' + (quotient ? 'QPath' : 'Path') + '</b> state0 state' + target + '</div>';
   if (!steps.length) tree += '<div class="proof-tree-node"><em>Path.nil</em> state0</div>';
   for (const step of steps) tree += '<div class="proof-tree-node"><em>' + (quotient ? 'QPath.cons' : 'Path.cons') + '</em> ' + escapeHtml(leanAction(step)) +
     '<div>executed : tryMove … = some actual' + step.index + '</div>' +
@@ -1092,12 +1437,16 @@ function updateProofTrace() {
   if (goal) tree += '<div class="proof-tree-node"><b>solved</b> : goal state' + target + ' = true<br><em>⇒ ' + (quotient ? 'QSolution' : (navigationUsed ? 'Solution' : 'CertifiedPlay')) + '</em></div>';
   ui['proof-tree'].innerHTML = tree;
   ui['proof-code'].textContent = generatedProofCode(steps, quotient);
-  ui['proof-code-status'].textContent = quotient ? 'QPath：执行等式 + 同形代表证书' : 'Path：每一步是精确 tryMove 等式';
+  ui['proof-code-status'].textContent = isCorridorSpace
+    ? 'CorridorMacroStep：可展开宏边 + 权重保持'
+    : quotient ? 'QPath：执行等式 + 同形代表证书' : 'Path：每一步是精确 tryMove 等式';
 }
 
 function showCompletion(state) {
   ui['result-node'].textContent = '#' + state.id;
-  ui['result-moves'].textContent = navigationUsed ? playerMoves + ' + 导航' : playerMoves + ' 步';
+  ui['result-moves'].textContent = isCorridorSpace
+    ? playerOperations + ' 操作 / ' + playerMoves + ' 步'
+    : navigationUsed ? playerMoves + ' + 导航' : playerMoves + ' 步';
   ui['result-distance'].textContent = state.distance + ' 步';
   if (navigationUsed) {
     ui['result-certification'].textContent = '该终局节点由 Lean BFS 计算为从经典布局可达；本次过程使用了三维图导航，因此不作为连续玩家解计步。';
@@ -1105,7 +1454,9 @@ function showCompletion(state) {
     ui['result-optimal'].className = 'result-verdict computed';
   } else if (playerMoves === shortestGoalDistance) {
     ui['result-certification'].textContent = '这条操作序列中的每一步都来自 Lean 导出的 tryMove 合法转换。';
-    ui['result-optimal'].textContent = '达到 Lean BFS 计算的全局最短值：' + shortestGoalDistance + ' 步';
+    ui['result-optimal'].textContent = isCorridorSpace
+      ? '底层最短值 ' + shortestGoalDistance + ' 步；决策骨架的最少宏操作值为 ' + shortestOperationDistance
+      : '达到 Lean BFS 计算的全局最短值：' + shortestGoalDistance + ' 步';
     ui['result-optimal'].className = 'result-verdict';
   } else {
     ui['result-certification'].textContent = '这条操作序列中的每一步都来自 Lean 导出的 tryMove 合法转换。';
@@ -1163,7 +1514,12 @@ if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
     cameraDistance: graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target),
     pointSize: pointCloud?.material.size, sizeAttenuation: pointCloud?.material.sizeAttenuation,
     markerScale: graphMode === 'force' ? forceCurrentMarker?.scale.x : currentMarker?.scale.x,
-    forceReady: Boolean(forceGraph), forcePinned, forceNodeCount: forceNodes.length, forceLinkCount: forceLinks.length
+    forceReady: Boolean(forceGraph), forcePinned, forceNodeCount: forceNodes.length, forceLinkCount: forceLinks.length,
+    overviewVisualCount: overviewVisualPositions ? overviewVisualPositions.length / 3 : 0,
+    contractionPairCount: contractionPairs.length,
+    macroEdgeCount,
+    ordinaryEdgeCount: edgePairs.length - macroEdgeCount,
+    macroEndpointCount: macroEndpointIds.size
   })
 };
 new ResizeObserver(resizeRenderer).observe(ui['graph-wrap']);

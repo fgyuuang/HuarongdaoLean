@@ -1,4 +1,4 @@
-import Huarongdao.Symmetry
+import Huarongdao.Relabeling
 import Huarongdao.StateSpace
 
 namespace Huarongdao
@@ -75,11 +75,7 @@ theorem shapeStep_iff_observationStep (source target : ShapeState) :
   · rintro ⟨s, action, t, source_eq, target_eq, executed⟩
     exact ⟨s, t, source_eq, target_eq, ⟨action, executed⟩⟩
 
-/--
-The remaining representative-independence obligation for the equal-shape
-quotient.  Proving this requires full equivariance of legal moves under
-permutations of the four vertical blocks and the four soldiers.
--/
+/-- Representative-wise step lifting for the equal-shape quotient. -/
 def SameShapeStepLift : Prop :=
   ∀ {source source' : ValidClassicState} {action : Action}
       {target : ValidClassicState},
@@ -89,11 +85,33 @@ def SameShapeStepLift : Prop :=
       validClassicTask.step source' action' target' ∧
       SameShape target.1 target'.1
 
-/-- Package a completed move-equivariance proof as an exact quotient. -/
-def shapeBisimulation (step_lift : SameShapeStepLift) :
+/--
+Every legal move from one representative can be matched from every
+equal-shape representative by transporting it along the induced relabeling.
+-/
+theorem sameShapeStepLift : SameShapeStepLift := by
+  intro source source' action target equivalent executed
+  let relabeling :=
+    sameShapeRelabeling source.2 source'.2 equivalent
+  have source_eq :
+      relabelState relabeling source.1 = source'.1 :=
+    sameShapeRelabeling_eq source.2 source'.2 equivalent
+  have relabelledMove :=
+    tryMove_relabel_some relabeling executed
+  rw [source_eq] at relabelledMove
+  let action' : Action :=
+    ⟨relabeling.forward action.piece, action.direction⟩
+  let target' : ValidClassicState :=
+    ⟨relabelState relabeling target.1, valid_relabel relabeling target.2⟩
+  refine ⟨action', target', ?_, ?_⟩
+  · exact relabelledMove
+  · exact sameShape_symm (relabel_sameShape relabeling target.1)
+
+/-- The equal-shape observation is an exact bisimulation quotient. -/
+def shapeBisimulation :
     StateSpace.BisimulationQuotient validClassicTask where
   toObservation := shapeObservation
-  step_lift := step_lift
+  step_lift := sameShapeStepLift
 
 theorem shapeStep_of_step {s t : State} (hs : ValidState s) (ht : ValidState t)
     (h : Step s t) :

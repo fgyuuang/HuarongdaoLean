@@ -9,7 +9,7 @@ than the definitions of the objects themselves.
 -/
 namespace StateSpace
 
-universe u v u' v'
+universe u v u' v' u'' v''
 
 /-- A rooted, goal-labelled, action-labelled transition system. -/
 structure Task (State : Type u) (Action : Type v) where
@@ -251,6 +251,30 @@ namespace Hom
 variable {State' : Type u'} {Action' : Type v'}
 variable {sourceTask : Task State Action} {targetTask : Task State' Action'}
 
+/-- Identity simulation of a state-space task. -/
+def id (task : Task State Action) : Hom task task where
+  mapState := fun state => state
+  mapAction := fun action => action
+  map_initial := rfl
+  map_goal := fun goal => goal
+  map_step := fun step => step
+
+/-- Compose simulations between state-space tasks. -/
+def comp
+    {State'' : Type u''} {Action'' : Type v''}
+    {finalTask : Task State'' Action''}
+    (right : Hom targetTask finalTask)
+    (left : Hom sourceTask targetTask) :
+    Hom sourceTask finalTask where
+  mapState := right.mapState ∘ left.mapState
+  mapAction := right.mapAction ∘ left.mapAction
+  map_initial := by
+    change right.mapState (left.mapState sourceTask.initial) =
+      finalTask.initial
+    rw [left.map_initial, right.map_initial]
+  map_goal := fun goal => right.map_goal (left.map_goal goal)
+  map_step := fun step => right.map_step (left.map_step step)
+
 /-- A simulation maps every concrete walk to a walk in the target system. -/
 def mapWalk (hom : Hom sourceTask targetTask) :
     sourceTask.Walk source target →
@@ -258,6 +282,14 @@ def mapWalk (hom : Hom sourceTask targetTask) :
   | .nil _ => .nil _
   | .cons action first tail =>
       .cons (hom.mapAction action) (hom.map_step first) (hom.mapWalk tail)
+
+@[simp] theorem mapWalk_length (hom : Hom sourceTask targetTask)
+    (walk : sourceTask.Walk source target) :
+    (hom.mapWalk walk).length = walk.length := by
+  induction walk with
+  | nil => rfl
+  | cons action first tail ih =>
+      simp [mapWalk, Walk.length, ih]
 
 theorem map_reachable (hom : Hom sourceTask targetTask)
     (reachable : sourceTask.Reachable source target) :
@@ -326,6 +358,30 @@ theorem step_of_step (observation : Observation task)
       (observation.classOf target) :=
   ⟨source, action, target, rfl, rfl, step⟩
 
+/--
+Every observation induces another state-space object.  Its states are
+equivalence classes, its actions are unlabelled quotient edges, and its root
+and goal predicate descend from the concrete task.
+-/
+def quotientTask (observation : Observation task) :
+    Task observation.Node Unit where
+  initial := observation.classOf task.initial
+  goal := observation.Goal
+  step := fun source _ target => observation.Step source target
+
+/-- The canonical projection from a task to any of its observational quotients. -/
+def projectionHom (observation : Observation task) :
+    Task.Hom task observation.quotientTask where
+  mapState := observation.classOf
+  mapAction := fun _ => ()
+  map_initial := rfl
+  map_goal := by
+    intro state goal
+    exact (observation.goal_classOf state).mpr goal
+  map_step := by
+    intro source action target step
+    exact observation.step_of_step step
+
 /-- A proof-carrying walk in the relational-image quotient graph. -/
 inductive QuotientWalk (observation : Observation task) :
     observation.Node → observation.Node → Type (max u v) where
@@ -363,6 +419,53 @@ def ofWalk :
   | nil => rfl
   | cons action first tail ih =>
       simp [ofWalk, length, Task.Walk.length, ih]
+
+/-- Reinterpret a quotient walk as a walk in the induced quotient task. -/
+def toTaskWalk :
+    observation.QuotientWalk source target →
+      observation.quotientTask.Walk source target
+  | .nil node => .nil node
+  | .cons first tail => .cons () first (toTaskWalk tail)
+
+/-- Reinterpret a quotient-task walk using the compatibility quotient-walk type. -/
+def ofTaskWalk :
+    observation.quotientTask.Walk source target →
+      observation.QuotientWalk source target
+  | .nil node => .nil node
+  | .cons _ first tail => .cons first (ofTaskWalk tail)
+
+@[simp] theorem length_toTaskWalk
+    (walk : observation.QuotientWalk source target) :
+    walk.toTaskWalk.length = walk.length := by
+  induction walk with
+  | nil => rfl
+  | cons first tail ih =>
+      simp [toTaskWalk, length, Task.Walk.length, ih]
+
+@[simp] theorem length_ofTaskWalk
+    (walk : observation.quotientTask.Walk source target) :
+    (ofTaskWalk walk).length = walk.length := by
+  induction walk with
+  | nil => rfl
+  | cons action first tail ih =>
+      simp [ofTaskWalk, length, Task.Walk.length, ih]
+
+@[simp] theorem ofTaskWalk_toTaskWalk
+    (walk : observation.QuotientWalk source target) :
+    ofTaskWalk walk.toTaskWalk = walk := by
+  induction walk with
+  | nil => rfl
+  | cons first tail ih =>
+      simp [toTaskWalk, ofTaskWalk, ih]
+
+@[simp] theorem toTaskWalk_ofTaskWalk
+    (walk : observation.quotientTask.Walk source target) :
+    (ofTaskWalk walk).toTaskWalk = walk := by
+  induction walk with
+  | nil => rfl
+  | cons action first tail ih =>
+      cases action
+      simp [toTaskWalk, ofTaskWalk, ih]
 
 /-- Reachability in the relational-image quotient graph. -/
 def Reachable (source target : observation.Node) : Prop :=
@@ -455,6 +558,27 @@ theorem liftWalkWithLength (quotient : BisimulationQuotient task)
         ⟨target, concreteTail, tailLength, target_eq⟩
       refine ⟨target, .cons action firstStep concreteTail, ?_, target_eq⟩
       simp [Task.Walk.length, Observation.QuotientWalk.length, tailLength]
+
+/--
+Task-level form of `liftWalkWithLength`.  This is the preferred interface for
+composing several state-space layers because every layer remains a `Task`.
+-/
+theorem liftTaskWalkWithLength (quotient : BisimulationQuotient task)
+    {sourceClass targetClass : quotient.toObservation.Node}
+    (walk :
+      quotient.toObservation.quotientTask.Walk sourceClass targetClass)
+    (source : State)
+    (source_eq : quotient.toObservation.classOf source = sourceClass) :
+    ∃ target, ∃ concreteWalk : task.Walk source target,
+      concreteWalk.length = walk.length ∧
+      quotient.toObservation.classOf target = targetClass := by
+  rcases quotient.liftWalkWithLength
+      (Observation.QuotientWalk.ofTaskWalk walk) source source_eq with
+    ⟨target, concreteWalk, length_eq, target_eq⟩
+  exact ⟨target, concreteWalk,
+    length_eq.trans
+      (Observation.QuotientWalk.length_ofTaskWalk walk),
+    target_eq⟩
 
 /--
 For a bisimulation quotient, abstract reachability from a concrete class is

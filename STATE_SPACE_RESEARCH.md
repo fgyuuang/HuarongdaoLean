@@ -97,9 +97,13 @@ npm run serve
 
 经典图工具栏现在提供三种互补视图：
 
-1. **参考全览**：项目原有的自定义 Three.js 点线渲染器；
+1. **参考全览**：项目原有的自定义 Three.js 点线渲染器，内部可切换同形商、镜像商和决策骨架状态空间；
 2. **3D 力导向**：`3d-force-graph@1.80.0` 管理完整 25,955 节点和 41,948 条去重无向边；
 3. **局部探索**：自研的小规模弹簧/排斥模拟，只展示已经发现的状态与一步前沿。
+
+参考全览保留本地方案的“展开 / 合并 / 100%”连续投影：`layout.mirror.json` 为每个镜像类保存两个端点和商节点中点，同形商的 25,955 个代表沿这些本地预计算坐标移动到 13,011 个镜像商节点。该过程不在浏览器中重新计算布局。
+
+三层不是对同一图就地改写。页面根据分类分别读取 `graph.json / layout.json`、`graph.mirror.json / layout.mirror.json` 和 `graph.corridor.json / layout.corridor.json`。决策骨架只绘制初始、目标和分岔关键节点，二度中间状态不显示；无归并的单步边为灰色，确实压缩多个底层步骤的宏边为蓝色，宏边起止节点用金色点突出显示。蓝色宏边保存完整父节点路径、原子步骤和权重。Lean `CorridorCompression.lean` 维护对应的有向、证明携带 `CorridorMacroStep` 对象。
 
 完整力导向模式不会随机冷启动。每个节点从 `layout.json` 获得参考位置 `rx,ry,rz`，每条边记录参考长度 `restLength`。默认令
 
@@ -370,11 +374,11 @@ e ∈ G.edgeSet ∧ G.IsBridge e
 
 1. **移动可逆性**：证明成功移动存在反方向移动，从语义上解释边为何成对；
 2. **规范键完备性**：证明 `key` 相等当且仅当 `SameShape`；
-3. **完整 `S4 x S4` 等变性**：证明标签置换与 `valid`、`tryMove`、`goal` 交换；
-4. **商图双模拟**：具体路径与商路径相互提升，排除抽象伪路径；
+3. **完整 `S4 x S4` 等变性**（已完成）：标签置换与 `valid`、`tryMove`、`goal` 交换；
+4. **商图双模拟**（已完成）：具体路径与商路径相互提升，排除抽象伪路径；
 5. **桥树证书**：按 2-边连通块聚合，证明跨块边恰为桥，商图是一棵树；
 6. **关羽相对高度门区**：把视频四阶段着色变成所有解必经定理；
-7. **完整 116 下界闭合**：把大图 true 证书封装为内核可消费的 `LowerBoundCertificate classic 116`；
+7. **完整 116 下界闭合**（已完成）：大图 true 证书已封装为内核可消费的 `QuotientLowerBoundCertificate classic 116`；
 8. **不可达岛守恒量**：为上游 898 个连通分量寻找奇偶性或排列不变量；
 9. **最短解计数与对称轨道**：证明最短解是否唯一到镜像/标签对称；
 10. **局部方形与立方复形**：独立移动交换时形成 4-环，多个自由度形成高维立方体；
@@ -490,6 +494,7 @@ validClassicTask
 shapeObservation
 shapeStep_iff_observationStep
 SameShapeStepLift
+sameShapeStepLift
 shapeBisimulation
 ```
 
@@ -497,10 +502,12 @@ shapeBisimulation
 
 - `SameShape` 已经证明是合法的目标观测；
 - 旧 `ShapeStep` 已证明恰好等于通用关系像商边；
-- `SameShapeStepLift` 被单独暴露为剩余证明义务；
-- 一旦完成该证明，`shapeBisimulation` 就能立刻获得全部商路径提升定理。
+- `Relabeling.lean` 从任意合法 `SameShape` 证明构造实际的 `PieceRelabeling`；
+- `occupiedCells`、`valid`、`moveUnchecked`、`tryMove` 已证明在保形重标号下等变；
+- `sameShapeStepLift` 已完成，不依赖 25,955 节点枚举；
+- `shapeBisimulation` 现在是无条件的精确商，商路径可从任意代表等长提升。
 
-`SameShapeStepLift` 不应靠对 25,955 个节点暴力枚举来充当数学证明。推荐证明路线是：
+实际采用的证明链是：
 
 ```text
 构造完整的 PieceRelabeling
@@ -512,7 +519,63 @@ shapeBisimulation
 -> SameShapeStepLift
 ```
 
-### 11.3 通用门区证书
+### 11.3 镜像商与决策骨架
+
+`MirrorQuotient.lean` 在 `ShapeState` 上定义水平镜像作用，并证明：
+
+```text
+shapeGraphTask
+  -> mirrorShapeTask
+```
+
+是精确双模拟商。`mirrorShapeTask_liftToConcreteWithLength` 将任意镜像商路径依次提升到同形商和具体合法状态，并保持一步长度。
+
+`CorridorCompression.lean` 不再识别新的等价状态，而是把无分岔路径打包成带权宏边。每条 `CorridorMacroStep` 保存完整底层路径，`corridorWalk_liftToConcreteWithCost` 证明任意决策骨架路径都能展开为具体路径，具体步数等于宏权重总和。因此压缩图是有证明的派生状态空间，不是修改或替换镜像商。
+
+四层公开入口位于 `StateSpaceKernel.lean`：
+
+```text
+validClassicTask
+  -> shapeGraphTask
+  -> mirrorShapeTask
+  -> corridorTask
+```
+
+四层都使用同一个 `StateSpace.Task` 形式化对象。`Task.Hom.comp` 负责组合前向投影，`BisimulationQuotient.liftTaskWalkWithLength` 和决策骨架展开定理负责反向恢复具体语义。
+
+### 11.4 经典有限商图证书
+
+抽象双模拟内核不依赖有限枚举；`ClassicCertificate.lean` 则把经典实例的 25,955 节点商图接到该内核上。可执行检查器验证：
+
+```text
+初态由节点 0 表示且势函数为 0
+每个代表的每条合法后继都能重标号到某个有限节点
+每条有限边的势函数最多增加 1
+每个目标代表的势函数至少为 116
+```
+
+`checkQuotientLowerBound_sound` 把这些布尔条件转成 `QuotientLowerBoundCertificate classic 116`。由此得到：
+
+```lean
+classic116Play_minimal :
+  classic116Play.Minimal
+
+ClassicStateSpaceKernel.concreteSolution_lower_bound
+    (solution : ClassicStateSpaceKernel.concrete.Solution) :
+  116 ≤ solution.walk.length
+```
+
+这层有限证书只负责经典实例的数值下界；同形商、镜像商和决策骨架压缩的语义正确性仍由前述一般定理承担，不以 25,955 节点枚举代替双模拟证明。
+
+### 11.5 与远端商空间工作的合并边界
+
+远端提交 `f243611` 的可复用部分是 576 个保形重标号的可执行枚举、`findShapeRelabeling`、`tryMove` 等变式、有限图索引/闭包检查和 116 步下界证书。它们已作为实例层并入当前内核。
+
+远端的 `MirrorEquivalent s t := SameShape s t ∨ SameShape (mirrorState s) t` 只提供直接判定和局部目标/移动接口，没有形成当前项目所需的完整 `Setoid`、任意代表边提升和路径等长定理，因此没有替换 `MirrorQuotient.lean`。
+
+可视化保留远端工作提出的层次分类，但将第三层按作用显示为“决策骨架”；不合入其以当前节点为中心的动态抽象布局、浏览器轨道构造或无向路径骨架。实际节点、边和坐标均来自本地独立项目生成的镜像商/决策骨架 JSON；“展开 / 合并 / 100%”动画、Three.js/`3d-force-graph` 操作、关卡实验室和启动方式也沿用本地实现。Lean 的四层状态空间对象及其投影/提升定理保持唯一形式化语义来源。
+
+### 11.6 通用门区证书
 
 `GoalSeparatorCertificate` 已经从经典棋盘中抽象出来。它只需要：
 

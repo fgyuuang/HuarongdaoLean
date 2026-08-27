@@ -5,12 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>华容道状态图</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=local-state-spaces-3">
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="seal">华</span><div><strong>华容道状态图</strong><small>Lean 4 verified transition system</small></div></div>
     <nav class="mode-switch" aria-label="探索模式"><button id="mode-classic" class="active">经典华容道</button><button id="mode-lab">关卡实验室</button></nav>
+    <label class="state-space-picker">
+      <span>状态空间</span>
+      <select id="state-space-layer" aria-label="选择形式化状态空间">
+        <option value="shape">同形商</option>
+        <option value="mirror">镜像商</option>
+        <option value="corridor">决策骨架</option>
+      </select>
+    </label>
     <div class="metrics">
       <span><b id="state-count">--</b> 状态</span><span><b id="edge-count">--</b> 转换</span><span><b id="depth-count">--</b> 层</span>
     </div>
@@ -62,7 +70,14 @@
           <button id="pick-end" class="route-pick active" title="从当前节点选择目标"><span>当前 → 终点</span><b id="route-end-id">未选择</b></button>
           <button id="route-play" class="tool-icon" title="播放合法路径动画" disabled>▶</button>
         </div>
-        <div class="explore-count"><span id="graph-count-label">完整图节点</span><strong id="explored-count">0</strong><button id="force-settings-toggle" class="force-settings-toggle" title="调整探索模式力导向参数">⚙ 参数</button></div>
+        <div class="explore-count">
+          <div class="quotient-contraction" title="镜像两端同时向中点粘连；展开时配对线仅用于展示对应关系">
+            <button id="quotient-contract-toggle" type="button">展开</button>
+            <input id="quotient-contract" type="range" min="0" max="100" step="1" value="100" aria-label="镜像节点合并度">
+            <b id="quotient-contract-value">100%</b>
+          </div>
+          <span id="graph-count-label">完整图节点</span><strong id="explored-count">0</strong><button id="force-settings-toggle" class="force-settings-toggle" title="调整探索模式力导向参数">⚙ 参数</button>
+        </div>
       </div>
       <div id="force-settings" class="force-settings" hidden>
          <div class="force-settings-heading"><strong>力导向参数</strong><button id="force-reset" type="button">恢复默认</button><label class="force-toggle-row"><span>自动随机游走</span><input id="random-walk-toggle" type="checkbox"><b id="random-walk-status">关闭</b></label></div>
@@ -84,8 +99,8 @@
           <button id="force3d-pin" type="button" title="恢复并固定上游预计算参考坐标">固定参考形状</button>
           <span id="force3d-status">参考坐标已固定</span>
         </div>
-        <div id="loading" class="loading"><span></span><strong>载入 25,955 个状态节点</strong></div>
-        <div class="legend"><span><i class="initial"></i>路径起点</span><span><i class="current"></i>当前状态</span><span><i class="goal"></i>路径终点</span><span><i class="frontier"></i>合法路径</span></div>
+        <div id="loading" class="loading"><span></span><strong>载入状态节点</strong></div>
+        <div class="legend"><span><i class="initial"></i>路径起点</span><span><i class="current"></i>当前状态</span><span><i class="goal"></i>路径终点</span><span><i class="frontier"></i>合法路径</span><span id="macro-edge-legend" hidden><i class="macro-edge"></i>归并宏边</span><span id="macro-endpoint-legend" hidden><i class="macro-endpoint"></i>宏边端点</span></div>
         <div class="zoom-controls"><button id="zoom-in" title="放大">+</button><button id="zoom-out" title="缩小">−</button></div>
         <aside id="proof-trace" class="proof-trace open" aria-label="Lean 路径证明工作台">
           <header><div><small>PROOF TERM · LIVE</small><h2>当前路径就是证明</h2></div><button id="proof-trace-close" title="关闭证明工作台">×</button></header>
@@ -151,10 +166,10 @@
       <div><b>4</b><strong>图数据</strong><span>BFS / graph.json</span></div>
     </div>
     <div class="proof-grid">
-      <section><h3>编译器已检查的定理</h3><code>mem_legalMoves_iff</code><p>动作枚举与 tryMove 成功完全等价。</p><code>reachable_preserves_validity</code><p>所有可达状态保持合法。</p><code>classic116Play_length</code><p>116 个玩家动作执行后到达 goal = true。</p><code>sameShape_refl / symm / trans</code><p>同形标签置换构成等价关系。</p><code>mirror_twice</code><p>有界棋盘左右镜像两次回到原状态。</p><code>solution_lower_bound</code><p>商图势函数证书推出任意解的长度下界。</p></section>
+      <section><h3>编译器已检查的定理</h3><code>shapeBisimulation</code><p>同形标签商可从任意代表提升合法边与路径。</p><code>mirrorShapeBisimulation</code><p>镜像商保持目标、一步长度与可达性。</p><code>corridorWalk_liftsToConcrete</code><p>决策骨架宏边可展开为具体合法路径，代价等于底层步数。</p><code>classic116Play_minimal</code><p>116 步玩家解在所有可执行玩法中全局最短。</p></section>
       <section><h3>Lean 证书检查结果</h3><div class="proof-number"><b>25,955</b><span>唯一商状态代表</span></div><div class="proof-number"><b>83,896</b><span>全部通过 QStep 检查</span></div><div class="proof-number"><b>TRUE</b><span>合法后继闭包</span></div><div class="proof-number"><b>116</b><span>目标层下界与可达实例</span></div></section>
     </div>
-    <div class="proof-boundary"><strong>验证边界</strong><span>116 步具体通关是 Lean 内核检查的 CertifiedPlay；商边、闭包、唯一代表、距离与目标下界由 Lean 可执行证书程序检查为 true。抽象定理已证明这些证书足以推出最短性；剩余工作是把 25,955 节点的大证书从可执行检查结果封装成内核级 LowerBoundCertificate，避免在证明阶段重跑完整 BFS。</span></div>
+    <div class="proof-boundary"><strong>验证边界</strong><span>具体状态、同形商、镜像商和决策骨架在 Lean 中是互不覆盖的状态空间对象，通过投影、路径提升和宏边展开连接。网页分别读取本地预计算坐标；坐标、动画和屏幕形状不是证明数据。</span></div>
   </dialog>
 
   <dialog id="result-dialog" class="result-dialog">
@@ -166,7 +181,7 @@
   </dialog>
 
   <script src="vendor/3d-force-graph.min.js"></script>
-  <script type="module" src="app.js"></script>
-  <script type="module" src="laboratory.js"></script>
+  <script type="module" src="app.js?v=local-state-spaces-3"></script>
+  <script type="module" src="laboratory.js?v=local-state-spaces-3"></script>
 </body>
 </html>

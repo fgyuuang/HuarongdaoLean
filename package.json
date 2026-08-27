@@ -9,7 +9,11 @@
     "analyze": "python scripts/analyze-state-space.py frontend/graph.json",
     "serve": "node scripts/serve.mjs",
     "check:generic": "node scripts/check-generic.mjs",
-    "check": "lake build && node --check frontend/app.js && node --check frontend/laboratory.js && node --check frontend/structural-layout-worker.js && node --check frontend/state-space-visualization.js && node --check scripts/serve.mjs && node scripts/check-generic.mjs && node scripts/check-layout.mjs"
+    "check:layout": "node scripts/check-layout.mjs",
+    "check:state-spaces": "node scripts/check-local-state-spaces.mjs",
+    "build:mirror": "python scripts/build_mirror_quotient.py",
+    "build:corridor": "python scripts/build_corridor_compression.py",
+    "check": "lake build && node --check frontend/app.js && node --check frontend/laboratory.js && node --check frontend/structural-layout-worker.js && node --check frontend/state-space-visualization.js && node --check scripts/serve.mjs && npm run check:generic && npm run check:layout && npm run check:state-spaces"
   },
   "dependencies": {
     "3d-force-graph": "1.80.0",
