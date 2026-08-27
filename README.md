@@ -15,6 +15,8 @@
 - 同形棋子标签置换下的规范键，即对称作用的商状态图
 - 完整三维状态图：25,955 个节点和 41,948 条无向连接
 - 参考全览、`3d-force-graph` 完整力导向、局部探索三种模式
+- 参考全览支持原图、左右镜像商图和带权路径骨架三级切换
+- 商节点和骨架路径支持局部展开，且导航始终还原为具体 Lean 合法边序列
 - 当前状态定位、深度缩放、起终点选择和逐边 Lean 合法路径动画
 - 前端实时显示 `ValidState`、`goal` 和转换来源，并可查看已编译的定理
 - 到达出口时显示完成节点、玩家步数、BFS 距离和路径验证类别
@@ -181,13 +183,17 @@ http://127.0.0.1:4173/?mode=lab
 
 通关结果会区分两种情况：只使用棋盘方向操作时，记录为连续的玩家解；图导航会先计算合法路径，再逐边更新棋盘并将每帧标记为 `tryMove = some`，但不把自动导航计作玩家手动解。
 
-## 经典模式的三种图展示
+## 经典模式的图展示与全览商图
 
-- **参考全览**：自定义 Three.js 点线渲染器显示全部 25,955 个节点和 41,948 条连接，固定使用离线预计算坐标。
+- **参考全览 / 原图**：自定义 Three.js 点线渲染器显示全部 25,955 个节点和 41,948 条连接，固定使用离线预计算坐标。
+- **参考全览 / 对称商图**：在 Lean 导出的 `SameShape` 规范代表图上继续按左右镜像取轨道，当前数据得到 13,011 个镜像类，其中 67 个为自对称类。每条商边保存一条具体 Lean 导出边作为见证；双击商节点可局部展开其具体成员。
+- **参考全览 / 路径骨架**：保留起点、目标与度数不等于 2 的分叉锚点，把最大度数 2 通路显示为带权边。当前数据保留 10,429 个锚点并压缩 2,582 个中间点，最长压缩边为 11 步。路径内部状态没有被声明为等价；双击骨架边可恢复完整商节点序列。
 - **3D 力导向**：由 `3d-force-graph@1.80.0` 渲染同一份 Lean 图。默认以 `fx/fy/fz` 固定参考形状；“释放并重新加热”会保留参考边长和弱锚定力，运行有限次 `d3-force-3d` 松弛；“固定参考形状”可精确恢复坐标。
 - **局部探索**：只显示已经到达的状态、已经走过的边，以及当前状态的一步合法后继。玩家移动或路径动画每经过一条合法边，图中就加入对应节点和连接，逐步织出转换图。
 
-三种模式共享同一套路径交互。点击节点只选择路径端点，系统先计算 `当前 → 选定起点 → 选定终点` 的最短路径，再逐边更新棋盘；任何一帧都必须对应 Lean 导出的合法边，不允许直接跳转状态。
+这些模式共享同一套路径交互。点击节点只选择路径端点，系统先计算 `当前 → 选定起点 → 选定终点` 的最短路径，再逐边更新棋盘；任何一帧都必须对应 Lean 导出的合法边，不允许直接跳转状态。
+
+全览的两级压缩只改变显示层。棋盘状态、最短路搜索、路径动画和证明工作台仍使用 Lean 导出的 25,955 个具体规范状态及合法边，因此骨架中的一条长边不会被误计为一步。
 
 ## 路径就是证明
 
@@ -204,11 +210,11 @@ http://127.0.0.1:4173/?mode=lab
 1. **动作枚举**：`mem_legalMoves_iff`、`legalMoves_sound`、`legalMoves_complete` 已由 Lean 内核检查。
 2. **路径证明**：`Path`、`Solution`、`CertifiedPlay`、`classic_solvable` 和 116 步具体解已完成。
 3. **图证书**：`checkEdges_sound`、闭包 soundness 和抽象 `QuotientLowerBoundCertificate.solution_lower_bound` 已证明；对完整图执行 checker 得到边可靠、闭包、唯一代表和距离约束全部为 true。
-4. **最短性**：`LowerBoundCertificate` 已证明局部势函数约束推出任意玩家解的全局长度下界，并证明达到下界的解最短。当前最后桥梁是把完整大图的可执行 true 证书封装成内核级 `LowerBoundCertificate classic 116`，避免证明阶段重新运行完整 BFS。
+4. **最短性**：`classicQuotientLowerBound_checked` 由 `native_decide` 检查完整 25,955 节点图，通用 soundness 定理将结果封装为 `classicQuotientLowerBoundCertificate`；最终定理 `classic116Play_minimal` 已证明该 116 步玩法在所有可执行玩法中全局最短。
 
 ## 对称性
 
-`SameShape` 忽略四个竖块和四个小兵的标签差异，并已证明自反、对称、传递及目标保持。`PieceRelabeling` 表示保形标签置换；项目包含小兵一/二换位实例。`mirrorState` 和 `Direction.mirror` 表示左右镜像，并证明方向镜像二次还原、有界状态镜像两次恢复以及中央出口目标保持。
+`SameShape` 忽略四个竖块和四个小兵的标签差异，并已证明自反、对称、传递及目标保持。`PieceRelabeling` 表示保形标签置换，并提供完整的同形重标号搜索及移动交换律。`MirrorEquivalent` 将直接同形节点与左右镜像后的同形节点归入同一类；`MirrorQStep` 给出精确移动到镜像商边的 Lean 接口，并证明合法有界布局上的目标判定保持。
 
 抽象 `GameSymmetry` 表明：只要一个状态变换与 `tryMove` 交换且保持 `goal`，Lean 就能自动把任意 `Path` 和 `Solution` 映射为对称的新证明。
 
@@ -234,6 +240,7 @@ lake exe check-certificate
 lake exe solve-puzzle 3 2 1000 20 2 1 1 0 0 2 0 1 1 1 0 '*' '*'
 npm run analyze
 npm run layout
+npm run check:quotient
 npm run serve
 ```
 
@@ -269,11 +276,13 @@ npm run serve
 - `scripts/check-layout.mjs`：30、660 和 1,620 节点图的有限性、确定性、镜像误差与大图近场分箱回归
 - `CertMain.lean`：经典完整图证书执行检查
 - `ExportMain.lean`：BFS 枚举与 JSON 导出
-- `frontend/app.js`：棋盘、参考全览、`3d-force-graph` 与局部探索交互
+- `frontend/app.js`：棋盘、三级参考全览、`3d-force-graph` 与局部探索交互
+- `frontend/overview-quotient.js`：左右镜像轨道与度数 2 路径骨架构造
 - `frontend/vendor/`：项目本地固定的 Three.js、OrbitControls 和 `3d-force-graph` 浏览器运行时
 - `frontend/graph.json`：由 Lean 生成的状态和合法边，不手工维护
 - `frontend/layout.json`：按 Lean 状态 ID 对齐的参考三维坐标
 - `scripts/import-reference-layout.mjs`：参考坐标到规范状态键的可复现映射
+- `scripts/check-overview-quotient.mjs`：商边见证与骨架路径覆盖检查
 - `scripts/analyze-state-space.py`：桥、割点和双连通块的探索性复算
 - `STATE_SPACE_RESEARCH.md`：图生成证据、Mathlib 对应关系与后续形式化路线
 - `STATE_SPACE_VISUALIZATION.md`：任意有限状态空间的输入、坐标、渲染和点击接口
@@ -281,4 +290,4 @@ npm run serve
 
 ## 当前边界
 
-当前“步”定义为单个棋子平移一个格。最短距离因此按单格移动计数。两个完整图模式绘制整个可达连通分量；局部探索只绘制本局逐步发现的子图。棋盘操作和自动导航都会移动当前状态环并更新路径，其中自动导航的相邻帧必须由一条 Lean 合法边连接。经典参考坐标适配自 2swap/Klotski-Webpage，自定义坐标由本项目 Worker 生成；两者都只是可视化数据。地标、镜像配对、力参数、屏幕中的细颈以及 `3d-force-graph` 的松弛结果都不是数学证书。Lean 权威数据仍是状态、动作标签与合法有向一步；视觉上的桥或门区必须经过有限图 checker 后才能成为定理。BFS 枚举器与独立证书检查器都是可执行 Lean 程序。一般性的动作枚举、路径、商证书下界和最短性推导已经形式证明；完整 25,955 节点证书已计算验证为 true，但尚未全部封装为一个可由内核定理直接消费的大型证明对象。
+当前“步”定义为单个棋子平移一个格。最短距离因此按单格移动计数。两个完整图模式绘制整个可达连通分量；局部探索只绘制本局逐步发现的子图。棋盘操作和自动导航都会移动当前状态环并更新路径，其中自动导航的相邻帧必须由一条 Lean 合法边连接。经典参考坐标适配自 2swap/Klotski-Webpage，自定义坐标由本项目 Worker 生成；两者都只是可视化数据。地标、镜像配对、力参数、屏幕中的细颈以及 `3d-force-graph` 的松弛结果都不是数学证书。Lean 权威数据仍是状态、动作标签与合法有向一步；视觉上的桥或门区必须经过有限图 checker 后才能成为定理。BFS 枚举器与独立证书检查器都是可执行 Lean 程序。完整 25,955 节点图条件已由 `native_decide` 检查并封装为 `classicQuotientLowerBoundCertificate`，最终定理 `classic116Play_minimal` 已在 Lean 中闭合。

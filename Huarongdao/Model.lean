@@ -3,7 +3,7 @@ namespace Huarongdao
 inductive Piece where
   | caoCao | guanYu | zhangFei | zhaoYun | maChao | huangZhong
   | soldier1 | soldier2 | soldier3 | soldier4
-  deriving Repr, DecidableEq, BEq, Hashable
+  deriving Repr, DecidableEq, BEq, ReflBEq, LawfulBEq, Hashable
 
 def Piece.all : List Piece :=
   [.caoCao, .guanYu, .zhangFei, .zhaoYun, .maChao, .huangZhong,
@@ -47,7 +47,7 @@ def Direction.label : Direction → String
 
 structure State where
   positions : Array Pos
-  deriving Repr, DecidableEq, BEq, Hashable
+  deriving Repr, DecidableEq, BEq, ReflBEq, LawfulBEq, Hashable
 
 def State.pos (s : State) (p : Piece) : Pos :=
   s.positions.getD p.index ⟨0, 0⟩

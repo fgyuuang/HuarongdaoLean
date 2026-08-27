@@ -64,6 +64,15 @@
         </div>
         <div class="explore-count"><span id="graph-count-label">完整图节点</span><strong id="explored-count">0</strong><button id="force-settings-toggle" class="force-settings-toggle" title="调整探索模式力导向参数">⚙ 参数</button></div>
       </div>
+      <div id="overview-controls" class="overview-controls">
+        <div class="overview-segments" role="tablist" aria-label="全览图层级">
+          <button class="active" data-overview-variant="original" role="tab">原图</button>
+          <button data-overview-variant="quotient" role="tab">对称商图</button>
+          <button data-overview-variant="skeleton" role="tab">路径骨架</button>
+        </div>
+        <span id="overview-detail">正在构造商图</span>
+        <button id="overview-collapse" class="overview-collapse" title="收起局部展开" disabled>收起展开</button>
+      </div>
       <div id="force-settings" class="force-settings" hidden>
          <div class="force-settings-heading"><strong>力导向参数</strong><button id="force-reset" type="button">恢复默认</button><label class="force-toggle-row"><span>自动随机游走</span><input id="random-walk-toggle" type="checkbox"><b id="random-walk-status">关闭</b></label></div>
          <label><span>连线长度 <b id="force-rest-value">2.15</b></span><input id="force-rest" type="range" min="0.15" max="12" step="0.05" value="2.15"></label>
@@ -154,7 +163,7 @@
       <section><h3>编译器已检查的定理</h3><code>mem_legalMoves_iff</code><p>动作枚举与 tryMove 成功完全等价。</p><code>reachable_preserves_validity</code><p>所有可达状态保持合法。</p><code>classic116Play_length</code><p>116 个玩家动作执行后到达 goal = true。</p><code>sameShape_refl / symm / trans</code><p>同形标签置换构成等价关系。</p><code>mirror_twice</code><p>有界棋盘左右镜像两次回到原状态。</p><code>solution_lower_bound</code><p>商图势函数证书推出任意解的长度下界。</p></section>
       <section><h3>Lean 证书检查结果</h3><div class="proof-number"><b>25,955</b><span>唯一商状态代表</span></div><div class="proof-number"><b>83,896</b><span>全部通过 QStep 检查</span></div><div class="proof-number"><b>TRUE</b><span>合法后继闭包</span></div><div class="proof-number"><b>116</b><span>目标层下界与可达实例</span></div></section>
     </div>
-    <div class="proof-boundary"><strong>验证边界</strong><span>116 步具体通关是 Lean 内核检查的 CertifiedPlay；商边、闭包、唯一代表、距离与目标下界由 Lean 可执行证书程序检查为 true。抽象定理已证明这些证书足以推出最短性；剩余工作是把 25,955 节点的大证书从可执行检查结果封装成内核级 LowerBoundCertificate，避免在证明阶段重跑完整 BFS。</span></div>
+    <div class="proof-boundary"><strong>验证边界</strong><span>116 步具体通关是 Lean 内核检查的 CertifiedPlay；完整 25,955 节点图条件由 native_decide 检查并封装为 classicQuotientLowerBoundCertificate，最终定理 classic116Play_minimal 已证明该玩法在所有可执行玩法中全局最短。</span></div>
   </dialog>
 
   <dialog id="result-dialog" class="result-dialog">

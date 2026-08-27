@@ -1,5 +1,6 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
+import { buildOverviewGraphs } from './overview-quotient.js';
 
 const pieces = [
   { label: '曹操', cls: 'cao', w: 2, h: 2 },
@@ -13,13 +14,15 @@ const pieces = [
   { label: '兵三', cls: 'soldier', w: 1, h: 1 },
   { label: '兵四', cls: 'soldier', w: 1, h: 1 }
 ];
-const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length'.split(' ');
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length overview-controls overview-detail overview-collapse'.split(' ');
 const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
 let graphData, layoutData, outgoing, shortestGoalDistance = 0;
 let current = 0, selected = null, history = [0], historyKinds = [], hintPath = [];
 let playerMoves = 0, navigationUsed = false, shownGoal = null;
 let graphMode = 'overview', selectionMode = 'end', routeStart = 0, routeEnd = null, routePath = [];
+let overviewVariant = 'original', overviewGraphs = null, quotientPositions = null, skeletonOrbitPositions = null;
+let overviewLayoutOrbit = -1;
 let routeStartPinned = false;
 let animationToken = 0, isAnimating = false, suppressCompletion = false;
 const exploredNodes = new Set([0]);
@@ -37,7 +40,12 @@ controls.minDistance = 1;
 controls.maxDistance = 600;
 const graphGroup = new THREE.Group();
 const overviewGroup = new THREE.Group();
+const overviewOriginalGroup = new THREE.Group();
+const overviewQuotientGroup = new THREE.Group();
+const overviewSkeletonGroup = new THREE.Group();
+const overviewExpansionGroup = new THREE.Group();
 const exploreGroup = new THREE.Group();
+overviewGroup.add(overviewOriginalGroup, overviewQuotientGroup, overviewSkeletonGroup, overviewExpansionGroup);
 graphGroup.add(overviewGroup, exploreGroup);
 scene.add(graphGroup);
 const raycaster = new THREE.Raycaster();
@@ -45,6 +53,8 @@ raycaster.params.Points.threshold = 0.8;
 const pointer = new THREE.Vector2();
 let pointCloud = null, overviewPoints = null, overviewEdges = null, explorePoints = null, exploreEdges = null;
 let pathLines = null, historyLines = null, currentMarker = null, startMarker = null, endMarker = null, edgePairs = [];
+const overviewLayers = {};
+let overviewExpansion = null, pendingNodePick = null;
 let graphPositions = null, graphCenter = new THREE.Vector3(), graphSize = 100, exploreNodeIds = [];
 let pointerDown = null;
 let keyboardFocus = 'board';
@@ -68,10 +78,20 @@ function isDarkTheme() { return document.documentElement.classList.contains('dar
 function updateSceneTheme() {
   const dark = isDarkTheme();
   scene.background = new THREE.Color(dark ? 0x1b1f1c : 0xf2f3ef);
-  if (overviewPoints) overviewPoints.material.color.set(dark ? 0xaab3ae : 0x59635e);
-  if (overviewEdges) {
-    overviewEdges.material.color.set(dark ? 0x76807b : 0x7a857f);
-    overviewEdges.material.opacity = dark ? 0.16 : 0.28;
+  const palette = {
+    original: { point: dark ? 0xaab3ae : 0x59635e, edge: dark ? 0x76807b : 0x7a857f, opacity: dark ? 0.16 : 0.28 },
+    quotient: { opacity: dark ? 0.58 : 0.54, pointOpacity: dark ? 0.94 : 0.9 },
+    skeleton: { opacity: dark ? 0.64 : 0.6, pointOpacity: dark ? 0.96 : 0.92 }
+  };
+  for (const [key, layer] of Object.entries(overviewLayers)) {
+    if (key === 'original') {
+      layer.points.material.color.set(palette[key].point);
+      layer.edges.material.color.set(palette[key].edge);
+    } else {
+      layer.points.material.opacity = palette[key].pointOpacity;
+      updateDerivedLayerColors(key);
+    }
+    layer.edges.material.opacity = palette[key].opacity;
   }
   if (forceGraph) {
     forceGraph
@@ -80,6 +100,7 @@ function updateSceneTheme() {
       .linkColor(() => dark ? '#77817c' : '#727c77')
       .refresh();
   }
+  updateExpansionTheme();
   if (graphData && graphPositions) rebuildExploreGraph();
   if (currentMarker) updateGraphState();
 }
@@ -314,6 +335,461 @@ function makePointTexture() {
 }
 const pointTexture = makePointTexture();
 
+function averageMemberPositions(nodes) {
+  const positions = new Float32Array(nodes.length * 3);
+  nodes.forEach(node => {
+    for (const stateId of node.members) {
+      positions[node.id * 3] += graphPositions[stateId * 3];
+      positions[node.id * 3 + 1] += graphPositions[stateId * 3 + 1];
+      positions[node.id * 3 + 2] += graphPositions[stateId * 3 + 2];
+    }
+    const scale = 1 / Math.max(1, node.members.length);
+    positions[node.id * 3] *= scale;
+    positions[node.id * 3 + 1] *= scale;
+    positions[node.id * 3 + 2] *= scale;
+  });
+  return positions;
+}
+
+function abstractShortestTree(nodeCount, edges, adjacency, seedPositions, start) {
+  const distances = new Float64Array(nodeCount);
+  distances.fill(Infinity);
+  const parent = new Int32Array(nodeCount), parentEdge = new Int32Array(nodeCount);
+  parent.fill(-1); parentEdge.fill(-1);
+  const order = [], heapNodes = [], heapDistances = [];
+  const currentX = seedPositions[start * 3], currentY = seedPositions[start * 3 + 1];
+  const seedAngles = new Float64Array(nodeCount);
+  for (let node = 0; node < nodeCount; node += 1) {
+    seedAngles[node] = Math.atan2(seedPositions[node * 3 + 1] - currentY, seedPositions[node * 3] - currentX);
+  }
+
+  function pushHeap(node, distance) {
+    let index = heapNodes.length;
+    heapNodes.push(node); heapDistances.push(distance);
+    while (index > 0) {
+      const parentIndex = (index - 1) >> 1;
+      if (heapDistances[parentIndex] <= distance) break;
+      heapNodes[index] = heapNodes[parentIndex]; heapDistances[index] = heapDistances[parentIndex];
+      index = parentIndex;
+    }
+    heapNodes[index] = node; heapDistances[index] = distance;
+  }
+
+  function popHeap() {
+    const node = heapNodes[0], distance = heapDistances[0];
+    const lastNode = heapNodes.pop(), lastDistance = heapDistances.pop();
+    if (heapNodes.length) {
+      let index = 0;
+      while (true) {
+        const left = index * 2 + 1, right = left + 1;
+        if (left >= heapNodes.length) break;
+        const child = right < heapNodes.length && heapDistances[right] < heapDistances[left] ? right : left;
+        if (heapDistances[child] >= lastDistance) break;
+        heapNodes[index] = heapNodes[child]; heapDistances[index] = heapDistances[child];
+        index = child;
+      }
+      heapNodes[index] = lastNode; heapDistances[index] = lastDistance;
+    }
+    return [node, distance];
+  }
+
+  function angleDifference(a, b) {
+    const difference = Math.abs(a - b) % (Math.PI * 2);
+    return Math.min(difference, Math.PI * 2 - difference);
+  }
+
+  distances[start] = 0;
+  pushHeap(start, 0);
+  while (heapNodes.length) {
+    const [node, distance] = popHeap();
+    if (distance !== distances[node]) continue;
+    order.push(node);
+    for (const edgeId of adjacency[node]) {
+      const edge = edges[edgeId];
+      const next = edge.source === node ? edge.target : edge.source;
+      const candidate = distance + Math.max(1, edge.weight || 1);
+      const tied = candidate === distances[next];
+      const currentParent = parent[next];
+      const betterAngle = tied && (currentParent < 0 ||
+        angleDifference(seedAngles[next], seedAngles[node]) < angleDifference(seedAngles[next], seedAngles[currentParent]));
+      if (candidate < distances[next] || betterAngle) {
+        distances[next] = candidate;
+        parent[next] = node;
+        parentEdge[next] = edgeId;
+        if (!tied) pushHeap(next, candidate);
+      }
+    }
+  }
+
+  let maxDistance = 1;
+  for (const distance of distances) if (Number.isFinite(distance)) maxDistance = Math.max(maxDistance, distance);
+  for (let node = 0; node < nodeCount; node += 1) {
+    if (Number.isFinite(distances[node])) continue;
+    distances[node] = maxDistance + 1;
+    parent[node] = start;
+    order.push(node);
+  }
+  maxDistance = Math.max(...distances);
+  return { distances, parent, parentEdge, order, seedAngles, maxDistance };
+}
+
+function focusedAbstractLayout({ nodeCount, edges, adjacency, seedPositions, currentNode, targetSize = 104 }) {
+  const tree = abstractShortestTree(nodeCount, edges, adjacency, seedPositions, currentNode);
+  const children = Array.from({ length: nodeCount }, () => []);
+  for (let node = 0; node < nodeCount; node += 1) {
+    if (tree.parent[node] >= 0) children[tree.parent[node]].push(node);
+  }
+
+  const subtreeSize = new Float64Array(nodeCount);
+  subtreeSize.fill(1);
+  for (let index = tree.order.length - 1; index >= 0; index -= 1) {
+    const node = tree.order[index], parent = tree.parent[node];
+    if (parent >= 0) subtreeSize[parent] += subtreeSize[node];
+  }
+
+  const angles = new Float64Array(nodeCount), spans = new Float64Array(nodeCount);
+  spans[currentNode] = Math.PI * 2;
+  function assignSectors(node, center, span) {
+    const descendants = children[node];
+    if (!descendants.length) return;
+    descendants.sort((left, right) => tree.seedAngles[left] - tree.seedAngles[right] || left - right);
+    const rawWeights = descendants.map(child => Math.pow(subtreeSize[child], 0.68));
+    const weightSum = rawWeights.reduce((sum, weight) => sum + weight, 0);
+    const gap = descendants.length > 1 ? Math.min(0.032, span * 0.035 / (descendants.length - 1)) : 0;
+    const available = Math.max(span * 0.7, span - gap * (descendants.length - 1));
+    let cursor = center - (available + gap * (descendants.length - 1)) / 2;
+    descendants.forEach((child, index) => {
+      const equalShare = 0.28 / descendants.length;
+      const weightedShare = 0.72 * rawWeights[index] / weightSum;
+      const childSpan = available * (equalShare + weightedShare);
+      const childCenter = cursor + childSpan / 2;
+      angles[child] = childCenter;
+      spans[child] = childSpan;
+      assignSectors(child, childCenter, childSpan);
+      cursor += childSpan + gap;
+    });
+  }
+  assignSectors(currentNode, 0, Math.PI * 2);
+
+  const distanceLayers = new Map();
+  for (let node = 0; node < nodeCount; node += 1) {
+    if (node === currentNode) continue;
+    const distance = tree.distances[node];
+    if (!distanceLayers.has(distance)) distanceLayers.set(distance, []);
+    distanceLayers.get(distance).push(node);
+  }
+
+  const positions = new Float32Array(nodeCount * 3);
+  const verticalRanks = new Int32Array(nodeCount);
+  for (const [distance, layer] of distanceLayers) {
+    layer.sort((left, right) => angles[left] - angles[right] || left - right);
+    layer.slice().sort((left, right) =>
+      seedPositions[left * 3 + 2] - seedPositions[right * 3 + 2] || left - right
+    ).forEach((node, index) => { verticalRanks[node] = index; });
+    const normalizedDistance = distance / tree.maxDistance;
+    const radius = targetSize * (0.1 * normalizedDistance + 0.9 * Math.pow(normalizedDistance, 0.66));
+    layer.forEach((node, index) => {
+      const hierarchyAngle = angles[node];
+      const evenAngle = layer.length === 1
+        ? hierarchyAngle
+        : -Math.PI + Math.PI * 2 * (index + 0.5) / layer.length;
+      const jitterLimit = Math.min(0.006, Math.PI * 0.18 / Math.max(1, layer.length));
+      const jitter = ((((node * 2654435761) >>> 0) % 1000) / 999 - 0.5) * jitterLimit;
+      const vertical = layer.length === 1 ? 0 : 0.8 * (1 - 2 * (verticalRanks[node] + 0.5) / layer.length);
+      const planar = Math.sqrt(1 - vertical * vertical);
+      const azimuth = evenAngle + jitter + normalizedDistance * 0.62;
+      positions[node * 3] = Math.cos(azimuth) * planar * radius;
+      positions[node * 3 + 1] = Math.sin(azimuth) * planar * radius;
+      positions[node * 3 + 2] = vertical * radius;
+    });
+  }
+  return { positions, ...tree };
+}
+
+function derivedLayerPalette(name) {
+  const dark = isDarkTheme();
+  if (name === 'quotient') return dark
+    ? { pointNear: 0x83d5c6, pointFar: 0x59786f, treeNear: 0x74b5a9, treeFar: 0x2b3934, cross: 0x1b1f1c }
+    : { pointNear: 0x176b64, pointFar: 0x78948b, treeNear: 0x2b756e, treeFar: 0xd3ddd8, cross: 0xf2f3ef };
+  return dark
+    ? { pointNear: 0xe2ad76, pointFar: 0x927664, treeNear: 0xd5a16a, treeFar: 0x3b332c, cross: 0x1b1f1c }
+    : { pointNear: 0x8f4039, pointFar: 0xaa8879, treeNear: 0x994b44, treeFar: 0xded5cf, cross: 0xf2f3ef };
+}
+
+function updateDerivedLayerColors(name) {
+  const layer = overviewLayers[name], metrics = layer?.layoutMetrics;
+  if (!layer || !metrics) return;
+  const palette = derivedLayerPalette(name);
+  const pointNear = new THREE.Color(palette.pointNear), pointFar = new THREE.Color(palette.pointFar);
+  const treeNear = new THREE.Color(palette.treeNear), treeFar = new THREE.Color(palette.treeFar);
+  const cross = new THREE.Color(palette.cross);
+  const pointColors = new Float32Array(metrics.nodeDistances.length * 3);
+  metrics.nodeDistances.forEach((distance, index) => {
+    const ratio = Math.pow(Math.min(1, distance / metrics.maxDistance), 0.62);
+    pointNear.clone().lerp(pointFar, ratio).toArray(pointColors, index * 3);
+  });
+  layer.points.geometry.setAttribute('color', new THREE.BufferAttribute(pointColors, 3));
+
+  const edgeColors = new Float32Array(layer.links.length * 6);
+  layer.links.forEach((edge, index) => {
+    if (!metrics.treeLinks[index]) {
+      cross.toArray(edgeColors, index * 6);
+      cross.toArray(edgeColors, index * 6 + 3);
+      return;
+    }
+    const sourceRatio = Math.pow(Math.min(1, metrics.distanceByAbstractId[edge.source] / metrics.maxDistance), 0.62);
+    const targetRatio = Math.pow(Math.min(1, metrics.distanceByAbstractId[edge.target] / metrics.maxDistance), 0.62);
+    treeNear.clone().lerp(treeFar, sourceRatio).toArray(edgeColors, index * 6);
+    treeNear.clone().lerp(treeFar, targetRatio).toArray(edgeColors, index * 6 + 3);
+  });
+  layer.edges.geometry.setAttribute('color', new THREE.BufferAttribute(edgeColors, 3));
+  layer.points.material.color.set(0xffffff);
+  layer.edges.material.color.set(0xffffff);
+  layer.points.material.vertexColors = true;
+  layer.edges.material.vertexColors = true;
+  layer.points.material.needsUpdate = true;
+  layer.edges.material.needsUpdate = true;
+}
+
+function updateOverviewLayerPositions(name, nodePositions, positionForNode, layoutMetrics) {
+  const layer = overviewLayers[name];
+  if (!layer) return;
+  layer.points.geometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
+  layer.points.geometry.computeBoundingSphere();
+  layer.positionForNode = positionForNode;
+  const edgePositions = new Float32Array(layer.links.length * 6);
+  layer.links.forEach((edge, index) => {
+    edgePositions.set(positionForNode(edge.source), index * 6);
+    edgePositions.set(positionForNode(edge.target), index * 6 + 3);
+  });
+  layer.edges.geometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+  layer.edges.geometry.computeBoundingSphere();
+  layer.layoutMetrics = layoutMetrics;
+  updateDerivedLayerColors(name);
+}
+
+function relayoutDerivedOverviewLayers() {
+  if (!overviewGraphs || !graphPositions) return;
+  const quotient = overviewGraphs.quotient;
+  const currentOrbit = quotient.orbitByState[current];
+  if (overviewLayoutOrbit === currentOrbit) return;
+  overviewLayoutOrbit = currentOrbit;
+
+  const quotientSeeds = averageMemberPositions(quotient.nodes);
+  const quotientLayout = focusedAbstractLayout({
+    nodeCount: quotient.nodes.length,
+    edges: quotient.edges,
+    adjacency: quotient.adjacency,
+    seedPositions: quotientSeeds,
+    currentNode: currentOrbit,
+    targetSize: 100
+  });
+  quotientPositions = quotientLayout.positions;
+  const quotientTreeLinks = new Uint8Array(quotient.edges.length);
+  for (const edgeId of quotientLayout.parentEdge) if (edgeId >= 0) quotientTreeLinks[edgeId] = 1;
+  updateOverviewLayerPositions(
+    'quotient',
+    quotientPositions,
+    id => quotientPositions.subarray(id * 3, id * 3 + 3),
+    {
+      nodeDistances: quotientLayout.distances,
+      distanceByAbstractId: quotientLayout.distances,
+      maxDistance: quotientLayout.maxDistance,
+      treeLinks: quotientTreeLinks
+    }
+  );
+
+  const skeleton = overviewGraphs.skeleton;
+  const anchorIds = skeleton.nodes.map(node => node.id);
+  const anchorIndexByOrbit = new Int32Array(quotient.nodes.length);
+  anchorIndexByOrbit.fill(-1);
+  anchorIds.forEach((orbitId, index) => { anchorIndexByOrbit[orbitId] = index; });
+  const currentLocation = skeleton.locationByOrbit[currentOrbit];
+  const virtualCurrent = currentLocation?.type === 'edge' ? anchorIds.length : -1;
+  const skeletonNodeCount = anchorIds.length + (virtualCurrent >= 0 ? 1 : 0);
+  const skeletonSeeds = new Float32Array(skeletonNodeCount * 3);
+  anchorIds.forEach((orbitId, index) => {
+    skeletonSeeds.set(quotientPositions.subarray(orbitId * 3, orbitId * 3 + 3), index * 3);
+  });
+  let skeletonCurrent = virtualCurrent >= 0 ? virtualCurrent : 0;
+  if (currentLocation?.type === 'node') {
+    skeletonCurrent = anchorIndexByOrbit[currentLocation.node];
+  } else if (virtualCurrent >= 0) {
+    skeletonSeeds.set(quotientPositions.subarray(currentOrbit * 3, currentOrbit * 3 + 3), virtualCurrent * 3);
+  }
+
+  const skeletonEdges = [];
+  function addSkeletonLayoutEdge(source, target, weight, originalId) {
+    skeletonEdges.push({ id: skeletonEdges.length, source, target, weight, originalId });
+  }
+  for (const edge of skeleton.edges) {
+    if (currentLocation?.type === 'edge' && currentLocation.edge === edge.id) {
+      addSkeletonLayoutEdge(anchorIndexByOrbit[edge.source], virtualCurrent, currentLocation.index, edge.id);
+      addSkeletonLayoutEdge(virtualCurrent, anchorIndexByOrbit[edge.target], edge.weight - currentLocation.index, edge.id);
+    } else {
+      addSkeletonLayoutEdge(anchorIndexByOrbit[edge.source], anchorIndexByOrbit[edge.target], edge.weight, edge.id);
+    }
+  }
+  const skeletonAdjacency = Array.from({ length: skeletonNodeCount }, () => []);
+  for (const edge of skeletonEdges) {
+    skeletonAdjacency[edge.source].push(edge.id);
+    skeletonAdjacency[edge.target].push(edge.id);
+  }
+  const skeletonLayout = focusedAbstractLayout({
+    nodeCount: skeletonNodeCount,
+    edges: skeletonEdges,
+    adjacency: skeletonAdjacency,
+    seedPositions: skeletonSeeds,
+    currentNode: skeletonCurrent,
+    targetSize: 96
+  });
+
+  skeletonOrbitPositions = new Float32Array(quotient.nodes.length * 3);
+  anchorIds.forEach((orbitId, index) => {
+    skeletonOrbitPositions.set(skeletonLayout.positions.subarray(index * 3, index * 3 + 3), orbitId * 3);
+  });
+  if (virtualCurrent >= 0) {
+    skeletonOrbitPositions.set(skeletonLayout.positions.subarray(virtualCurrent * 3, virtualCurrent * 3 + 3), currentOrbit * 3);
+  }
+
+  function interpolateCorridor(edge, fromIndex, toIndex, source, target) {
+    const span = Math.max(1, toIndex - fromIndex);
+    for (let index = fromIndex; index <= toIndex; index += 1) {
+      const ratio = (index - fromIndex) / span;
+      const orbitId = edge.nodePath[index];
+      skeletonOrbitPositions[orbitId * 3] = source[0] + (target[0] - source[0]) * ratio;
+      skeletonOrbitPositions[orbitId * 3 + 1] = source[1] + (target[1] - source[1]) * ratio;
+      skeletonOrbitPositions[orbitId * 3 + 2] = 0;
+    }
+  }
+  for (const edge of skeleton.edges) {
+    const source = skeletonOrbitPositions.subarray(edge.source * 3, edge.source * 3 + 3);
+    const target = skeletonOrbitPositions.subarray(edge.target * 3, edge.target * 3 + 3);
+    if (currentLocation?.type === 'edge' && currentLocation.edge === edge.id) {
+      const center = skeletonOrbitPositions.subarray(currentOrbit * 3, currentOrbit * 3 + 3);
+      interpolateCorridor(edge, 0, currentLocation.index, source, center);
+      interpolateCorridor(edge, currentLocation.index, edge.nodePath.length - 1, center, target);
+    } else {
+      interpolateCorridor(edge, 0, edge.nodePath.length - 1, source, target);
+    }
+  }
+
+  const visibleSkeletonPositions = new Float32Array(skeleton.nodes.length * 3);
+  skeleton.nodes.forEach((node, index) => {
+    visibleSkeletonPositions.set(skeletonOrbitPositions.subarray(node.id * 3, node.id * 3 + 3), index * 3);
+  });
+  const skeletonDistanceByOrbit = new Float64Array(quotient.nodes.length);
+  skeletonDistanceByOrbit.fill(Infinity);
+  anchorIds.forEach((orbitId, index) => { skeletonDistanceByOrbit[orbitId] = skeletonLayout.distances[index]; });
+  if (virtualCurrent >= 0) skeletonDistanceByOrbit[currentOrbit] = 0;
+  for (const edge of skeleton.edges) {
+    const sourceDistance = skeletonDistanceByOrbit[edge.source], targetDistance = skeletonDistanceByOrbit[edge.target];
+    edge.nodePath.forEach((orbitId, index) => {
+      skeletonDistanceByOrbit[orbitId] = Math.min(sourceDistance + index, targetDistance + edge.weight - index);
+    });
+  }
+  const skeletonNodeDistances = new Float64Array(skeleton.nodes.length);
+  skeleton.nodes.forEach((node, index) => { skeletonNodeDistances[index] = skeletonDistanceByOrbit[node.id]; });
+  const skeletonTreeLinks = new Uint8Array(skeleton.edges.length);
+  for (const layoutEdgeId of skeletonLayout.parentEdge) {
+    if (layoutEdgeId >= 0) skeletonTreeLinks[skeletonEdges[layoutEdgeId].originalId] = 1;
+  }
+  updateOverviewLayerPositions(
+    'skeleton',
+    visibleSkeletonPositions,
+    id => skeletonOrbitPositions.subarray(id * 3, id * 3 + 3),
+    {
+      nodeDistances: skeletonNodeDistances,
+      distanceByAbstractId: skeletonDistanceByOrbit,
+      maxDistance: skeletonLayout.maxDistance,
+      treeLinks: skeletonTreeLinks
+    }
+  );
+  if (overviewExpansion) clearOverviewExpansion();
+}
+
+function createOverviewLayer(name, group, nodePositions, nodeIds, abstractIds, links, positionForNode, pointSize) {
+  const pointGeometry = new THREE.BufferGeometry();
+  pointGeometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
+  const points = new THREE.Points(pointGeometry, new THREE.PointsMaterial({
+    color: 0xaab3ae,
+    size: pointSize,
+    sizeAttenuation: false,
+    map: pointTexture,
+    alphaTest: 0.45,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false
+  }));
+  points.userData.nodeIds = nodeIds;
+  points.userData.abstractIds = abstractIds;
+  group.add(points);
+
+  const edgePositions = new Float32Array(links.length * 6);
+  links.forEach((edge, index) => {
+    edgePositions.set(positionForNode(edge.source), index * 6);
+    edgePositions.set(positionForNode(edge.target), index * 6 + 3);
+  });
+  const edgeGeometry = new THREE.BufferGeometry();
+  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+  const edges = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({
+    color: 0x76807b,
+    transparent: true,
+    opacity: 0.2,
+    depthWrite: false
+  }));
+  edges.userData.edgeData = links;
+  group.add(edges);
+  overviewLayers[name] = { group, points, edges, links, positionForNode };
+}
+
+function buildDerivedOverviewLayers() {
+  overviewGraphs = buildOverviewGraphs(graphData);
+  const quotient = overviewGraphs.quotient;
+  quotientPositions = new Float32Array(quotient.nodes.length * 3);
+  for (const node of quotient.nodes) {
+    quotientPositions.set(graphPositions.subarray(node.representative * 3, node.representative * 3 + 3), node.id * 3);
+  }
+  createOverviewLayer(
+    'quotient',
+    overviewQuotientGroup,
+    quotientPositions,
+    quotient.nodes.map(node => node.representative),
+    quotient.nodes.map(node => node.id),
+    quotient.edges,
+    id => quotientPositions.subarray(id * 3, id * 3 + 3),
+    3
+  );
+
+  const skeleton = overviewGraphs.skeleton;
+  skeletonOrbitPositions = new Float32Array(quotientPositions);
+  for (const edge of skeleton.edges) {
+    const source = new THREE.Vector3().fromArray(quotientPositions, edge.source * 3);
+    const target = new THREE.Vector3().fromArray(quotientPositions, edge.target * 3);
+    edge.nodePath.forEach((orbitId, index) => {
+      const ratio = edge.nodePath.length === 1 ? 0 : index / (edge.nodePath.length - 1);
+      const position = source.clone().lerp(target, ratio);
+      skeletonOrbitPositions.set(position.toArray(), orbitId * 3);
+    });
+  }
+  const skeletonNodePositions = new Float32Array(skeleton.nodes.length * 3);
+  skeleton.nodes.forEach((node, index) => {
+    skeletonNodePositions.set(skeletonOrbitPositions.subarray(node.id * 3, node.id * 3 + 3), index * 3);
+  });
+  createOverviewLayer(
+    'skeleton',
+    overviewSkeletonGroup,
+    skeletonNodePositions,
+    skeleton.nodes.map(node => node.representative),
+    skeleton.nodes.map(node => node.id),
+    skeleton.edges,
+    id => skeletonOrbitPositions.subarray(id * 3, id * 3 + 3),
+    3.4
+  );
+  overviewLayoutOrbit = -1;
+  relayoutDerivedOverviewLayers();
+}
+
 function buildFullGraph() {
   const count = graphData.states.length;
   const raw = layoutData.coordinates;
@@ -326,27 +802,24 @@ function buildFullGraph() {
   graphPositions = new Float32Array(count * 3);
   for (let id = 0; id < count; id += 1) for (let axis = 0; axis < 3; axis += 1) graphPositions[id * 3 + axis] = (raw[id][axis] - center[axis]) * scale;
 
-  const pointGeometry = new THREE.BufferGeometry();
-  pointGeometry.setAttribute('position', new THREE.BufferAttribute(graphPositions, 3));
-  overviewPoints = new THREE.Points(pointGeometry, new THREE.PointsMaterial({ color: 0xaab3ae, size: 1.5, sizeAttenuation: false, map: pointTexture, alphaTest: 0.45, transparent: true, opacity: 0.62, depthWrite: false }));
-  overviewPoints.userData.nodeIds = null;
-  overviewGroup.add(overviewPoints);
-
   const seen = new Set(); edgePairs = [];
   for (const edge of graphData.edges) {
     const key = edgeKey(edge.source, edge.target);
     if (seen.has(key)) continue;
     seen.add(key); edgePairs.push([edge.source, edge.target]);
   }
-  const edgePositions = new Float32Array(edgePairs.length * 6);
-  edgePairs.forEach(([source, target], index) => {
-    edgePositions.set(graphPositions.subarray(source * 3, source * 3 + 3), index * 6);
-    edgePositions.set(graphPositions.subarray(target * 3, target * 3 + 3), index * 6 + 3);
-  });
-  const edgeGeometry = new THREE.BufferGeometry();
-  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
-  overviewEdges = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({ color: 0x76807b, transparent: true, opacity: 0.16, depthWrite: false }));
-  overviewGroup.add(overviewEdges);
+  const originalLinks = edgePairs.map(([source, target], id) => ({ id, source, target, weight: 1 }));
+  createOverviewLayer(
+    'original',
+    overviewOriginalGroup,
+    graphPositions,
+    null,
+    null,
+    originalLinks,
+    id => graphPositions.subarray(id * 3, id * 3 + 3),
+    1.5
+  );
+  buildDerivedOverviewLayers();
 
   currentMarker = makeRingMarker('#9f2d2d', '#ffffff', 22);
   startMarker = makeRingMarker('#d6a342', '#6f531f', 16);
@@ -355,6 +828,7 @@ function buildFullGraph() {
   graphCenter.set(0, 0, 0); graphSize = 110;
   prepareForceGraphData();
   rebuildExploreGraph();
+  setOverviewVariant('original', false);
   setGraphMode('overview', false);
   updateSceneTheme();
 }
@@ -560,6 +1034,11 @@ function pinForceReferenceShape() {
 
 function nodePosition(id, target = new THREE.Vector3()) {
   if (graphMode === 'explore' && exploreForce.positions.has(id)) return target.copy(exploreForce.positions.get(id));
+  if (overviewGraphs && overviewVariant !== 'original') {
+    const orbitId = overviewGraphs.quotient.orbitByState[id];
+    const positions = overviewVariant === 'skeleton' ? skeletonOrbitPositions : quotientPositions;
+    return target.fromArray(positions, orbitId * 3);
+  }
   return target.fromArray(graphPositions, id * 3);
 }
 function recordExploration(from, to) {
@@ -704,8 +1183,140 @@ function makePath(ids, color, opacity = 1, dashed = false) {
   if (dashed) { line.computeLineDistances(); line.userData.dashed = true; }
   line.renderOrder = 12; return line;
 }
+
+function clearOverviewExpansion() {
+  while (overviewExpansionGroup.children.length) {
+    const child = overviewExpansionGroup.children.at(-1);
+    overviewExpansionGroup.remove(child);
+    child.geometry?.dispose();
+    child.material?.dispose();
+  }
+  overviewExpansion = null;
+  if (ui['overview-collapse']) ui['overview-collapse'].disabled = true;
+  updateOverviewControls();
+}
+
+function expansionPoints(positions, nodeIds, abstractIds) {
+  const geometry = new THREE.BufferGeometry().setFromPoints(positions);
+  const points = new THREE.Points(geometry, new THREE.PointsMaterial({
+    color: 0xd6a342,
+    size: 7,
+    sizeAttenuation: false,
+    map: pointTexture,
+    alphaTest: 0.45,
+    transparent: true,
+    depthTest: false
+  }));
+  points.userData.expansionRole = 'points';
+  points.userData.expanded = true;
+  points.userData.nodeIds = nodeIds;
+  points.userData.abstractIds = abstractIds;
+  points.renderOrder = 14;
+  overviewExpansionGroup.add(points);
+}
+
+function expansionLine(positions) {
+  if (positions.length < 2) return;
+  const geometry = new THREE.BufferGeometry().setFromPoints(positions);
+  const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({
+    color: 0xd6a342,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false
+  }));
+  line.userData.expansionRole = 'line';
+  line.renderOrder = 13;
+  overviewExpansionGroup.add(line);
+}
+
+function updateExpansionTheme() {
+  const dark = isDarkTheme();
+  for (const child of overviewExpansionGroup.children) {
+    if (child.userData.expansionRole === 'points') child.material.color.set(dark ? 0xffc76c : 0xb77518);
+    if (child.userData.expansionRole === 'line') child.material.color.set(dark ? 0xffdca1 : 0x9f2d2d);
+  }
+}
+
+function expandOrbit(orbitId) {
+  clearOverviewExpansion();
+  const orbit = overviewGraphs.quotient.nodes[orbitId];
+  const positions = orbit.members.map(id => new THREE.Vector3().fromArray(graphPositions, id * 3));
+  const center = new THREE.Vector3().fromArray(quotientPositions, orbitId * 3);
+  const spokes = [];
+  for (const position of positions) spokes.push(center.clone(), position.clone());
+  if (spokes.length > 1) {
+    const geometry = new THREE.BufferGeometry().setFromPoints(spokes);
+    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xd6a342, transparent: true, opacity: 0.8, depthTest: false }));
+    lines.userData.expansionRole = 'line';
+    lines.renderOrder = 13;
+    overviewExpansionGroup.add(lines);
+  }
+  expansionPoints(positions, orbit.members, orbit.members.map(() => orbitId));
+  overviewExpansion = { type: 'orbit', orbitId, count: orbit.members.length };
+  ui['overview-collapse'].disabled = false;
+  updateExpansionTheme();
+  updateOverviewControls();
+}
+
+function expandCorridor(edgeId) {
+  clearOverviewExpansion();
+  const edge = overviewGraphs.skeleton.edges[edgeId];
+  const positions = edge.nodePath.map(orbitId => new THREE.Vector3().fromArray(skeletonOrbitPositions, orbitId * 3));
+  expansionLine(positions);
+  expansionPoints(
+    positions,
+    edge.nodePath.map(orbitId => overviewGraphs.quotient.nodes[orbitId].representative),
+    edge.nodePath
+  );
+  overviewExpansion = { type: 'corridor', edgeId, count: edge.nodePath.length, weight: edge.weight };
+  ui['overview-collapse'].disabled = false;
+  updateExpansionTheme();
+  updateOverviewControls();
+}
+
+function overviewDetailText() {
+  if (!overviewGraphs) return '正在构造商图';
+  if (overviewExpansion?.type === 'orbit') return `已展开镜像类 · ${overviewExpansion.count} 个具体状态`;
+  if (overviewExpansion?.type === 'corridor') return `已展开路径 · ${overviewExpansion.weight} 步 · ${overviewExpansion.count} 个商节点`;
+  if (overviewVariant === 'original') return `${graphData.states.length.toLocaleString()} 个具体状态 · ${edgePairs.length.toLocaleString()} 条连接`;
+  if (overviewVariant === 'quotient') {
+    const quotient = overviewGraphs.quotient;
+    return `${quotient.nodes.length.toLocaleString()} 个镜像类 · ${quotient.fixedCount.toLocaleString()} 个自对称点`;
+  }
+  const skeleton = overviewGraphs.skeleton;
+  return `${skeleton.nodes.length.toLocaleString()} 个锚点 · 压缩 ${skeleton.compressedNodeCount.toLocaleString()} 个中间点`;
+}
+
+function updateOverviewControls() {
+  if (!ui['overview-controls']) return;
+  ui['overview-controls'].hidden = graphMode !== 'overview';
+  ui['overview-detail'].textContent = overviewDetailText();
+  document.querySelectorAll('[data-overview-variant]').forEach(button => {
+    const active = button.dataset.overviewVariant === overviewVariant;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+}
+
+function setOverviewVariant(variant, refit = true) {
+  if (!overviewLayers[variant]) return;
+  overviewVariant = variant;
+  if (variant !== 'original') relayoutDerivedOverviewLayers();
+  clearOverviewExpansion();
+  for (const [name, layer] of Object.entries(overviewLayers)) layer.group.visible = name === variant;
+  const active = overviewLayers[variant];
+  overviewPoints = active.points;
+  overviewEdges = active.edges;
+  if (graphMode === 'overview') pointCloud = overviewPoints;
+  updateOverviewControls();
+  updateSceneTheme();
+  updateGraphState();
+  if (refit && graphMode === 'overview') requestAnimationFrame(fitGraph);
+}
+
 function updateGraphState() {
   if (!graphPositions || !currentMarker) return;
+  if (graphMode === 'overview' && overviewVariant !== 'original') relayoutDerivedOverviewLayers();
   currentMarker.position.copy(nodePosition(current));
   startMarker.position.copy(nodePosition(routeStart));
   startMarker.visible = routeStart !== current || routeEnd !== null;
@@ -719,12 +1330,24 @@ function updateGraphState() {
   if (pathLines) graphGroup.add(pathLines);
   syncForceMarkerPositions();
   if (graphMode === 'overview') {
-    ui['explored-count'].textContent = graphData.states.length.toLocaleString();
-    ui['graph-summary'].textContent = '参考全览 · 当前 #' + current + ' · ' + graphData.states.length.toLocaleString() + ' 个节点 · ' + edgePairs.length.toLocaleString() + ' 条连接';
+    const nodeCount = overviewVariant === 'original'
+      ? graphData.states.length
+      : overviewVariant === 'quotient'
+        ? overviewGraphs.quotient.nodes.length
+        : overviewGraphs.skeleton.nodes.length;
+    const edgeCount = overviewVariant === 'original'
+      ? edgePairs.length
+      : overviewVariant === 'quotient'
+        ? overviewGraphs.quotient.edges.length
+        : overviewGraphs.skeleton.edges.length;
+    const label = overviewVariant === 'original' ? '参考全览 / 原图' : overviewVariant === 'quotient' ? '左右镜像商图' : '带权路径骨架';
+    ui['explored-count'].textContent = nodeCount.toLocaleString();
+    ui['graph-summary'].textContent = label + ' · 当前 #' + current + ' · ' + nodeCount.toLocaleString() + ' 个节点 · ' + edgeCount.toLocaleString() + ' 条连接';
   } else if (graphMode === 'force') {
     ui['explored-count'].textContent = graphData.states.length.toLocaleString();
     ui['graph-summary'].textContent = '3d-force-graph · 当前 #' + current + ' · ' + (forcePinned ? '参考坐标固定' : 'd3-force-3d 有限松弛') + ' · ' + edgePairs.length.toLocaleString() + ' 条连接';
   }
+  updateOverviewControls();
   ui['zoom-label'].textContent = Math.round(graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target)) + 'u';
 }
 
@@ -828,8 +1451,9 @@ function setGraphMode(mode, refit = true) {
   ui['force-settings-toggle'].hidden = mode !== 'explore';
   if (mode !== 'explore') ui['force-settings'].hidden = true;
   document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === mode));
-  ui['graph-count-label'].textContent = mode === 'explore' ? '当前织图节点' : '完整图节点';
+  ui['graph-count-label'].textContent = mode === 'explore' ? '当前织图节点' : mode === 'overview' ? '当前视图节点' : '完整图节点';
   if (mode === 'explore') rebuildExploreGraph();
+  updateOverviewControls();
   updateGraphState();
   if (mode === 'force') {
     requestAnimationFrame(() => {
@@ -862,9 +1486,26 @@ function fitGraph() {
   }
   controls.target.copy(center);
   const exploreView = graphMode === 'explore';
-  camera.position.copy(center).add(exploreView
-    ? new THREE.Vector3(0, 0, Math.max(12, size * 1.18))
-    : new THREE.Vector3(size * 0.78, size * 0.48, size * 0.96));
+  const derivedOverview = graphMode === 'overview' && overviewVariant !== 'original';
+  if (derivedOverview) {
+    const box = new THREE.Box3().setFromObject(overviewLayers[overviewVariant].group);
+    center = nodePosition(current, new THREE.Vector3());
+    controls.target.copy(center);
+    const corners = [
+      new THREE.Vector3(box.min.x, box.min.y, box.min.z), new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+      new THREE.Vector3(box.min.x, box.max.y, box.min.z), new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+      new THREE.Vector3(box.min.x, box.min.y, box.max.z), new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+      new THREE.Vector3(box.min.x, box.max.y, box.max.z), new THREE.Vector3(box.max.x, box.max.y, box.max.z)
+    ];
+    const radius = Math.max(4, ...corners.map(corner => corner.distanceTo(center)));
+    const distance = radius * 1.12 / Math.sin(THREE.MathUtils.degToRad(camera.fov) / 2);
+    camera.up.set(0, 1, 0);
+    camera.position.copy(center).add(new THREE.Vector3(0.82, 0.54, 1).normalize().multiplyScalar(distance));
+  } else {
+    camera.position.copy(center).add(exploreView
+      ? new THREE.Vector3(0, 0, Math.max(12, size * 1.18))
+      : new THREE.Vector3(size * 0.78, size * 0.48, size * 0.96));
+  }
   camera.near = 0.05; camera.far = 1200; camera.updateProjectionMatrix(); controls.update();
 }
 function resizeRenderer() {
@@ -903,28 +1544,81 @@ function animate(now = performance.now()) {
 requestAnimationFrame(animate);
 
 function pickNode(event) {
+  if (!pointCloud) return null;
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   raycaster.params.Points.threshold = Math.max(0.12, camera.position.distanceTo(controls.target) / (graphMode === 'explore' ? 105 : 170));
+  const expansionPoints = overviewExpansionGroup.children.find(child => child.userData.expansionRole === 'points');
+  if (graphMode === 'overview' && expansionPoints) {
+    const expansionHit = raycaster.intersectObject(expansionPoints, false)[0];
+    if (expansionHit) return expansionHit;
+  }
   return raycaster.intersectObject(pointCloud, false)[0];
+}
+function pickOverviewEdge(event) {
+  if (graphMode !== 'overview' || !overviewEdges) return null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  raycaster.params.Line.threshold = Math.max(0.08, camera.position.distanceTo(controls.target) / 260);
+  return raycaster.intersectObject(overviewEdges, false)[0];
+}
+function stateIdFromPointHit(hit) {
+  return hit.object.userData.nodeIds ? hit.object.userData.nodeIds[hit.index] : hit.index;
+}
+function abstractIdFromPointHit(hit) {
+  return hit.object.userData.abstractIds ? hit.object.userData.abstractIds[hit.index] : null;
+}
+function edgeIdFromLineHit(hit) {
+  return Math.floor((hit.index || 0) / 2);
 }
 renderer.domElement.addEventListener('pointerdown', event => { pointerDown = { x: event.clientX, y: event.clientY }; });
 renderer.domElement.addEventListener('pointerup', event => {
   if (!pointerDown || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 5) return;
   const hit = pickNode(event);
   if (hit) {
-    const id = pointCloud.userData.nodeIds ? pointCloud.userData.nodeIds[hit.index] : hit.index;
-    selectRouteNode(id);
+    const id = stateIdFromPointHit(hit);
+    if (pendingNodePick) clearTimeout(pendingNodePick);
+    pendingNodePick = setTimeout(() => { pendingNodePick = null; selectRouteNode(id); }, 220);
+  }
+});
+renderer.domElement.addEventListener('dblclick', event => {
+  if (pendingNodePick) clearTimeout(pendingNodePick);
+  pendingNodePick = null;
+  if (graphMode !== 'overview' || overviewVariant === 'original') return;
+  const nodeHit = pickNode(event);
+  if (nodeHit && overviewVariant === 'quotient') {
+    expandOrbit(abstractIdFromPointHit(nodeHit));
+    return;
+  }
+  if (overviewVariant === 'skeleton') {
+    const edgeHit = pickOverviewEdge(event);
+    if (edgeHit) expandCorridor(edgeIdFromLineHit(edgeHit));
   }
 });
 renderer.domElement.addEventListener('pointermove', event => {
   const hit = pointCloud ? pickNode(event) : null;
-  ui['node-tooltip'].classList.toggle('visible', Boolean(hit));
+  const edgeHit = !hit && overviewVariant === 'skeleton' ? pickOverviewEdge(event) : null;
+  ui['node-tooltip'].classList.toggle('visible', Boolean(hit || edgeHit));
   if (hit) {
-    const id = pointCloud.userData.nodeIds ? pointCloud.userData.nodeIds[hit.index] : hit.index;
-    ui['node-tooltip'].textContent = '#' + id + ' · 起点距离 ' + graphData.states[id].distance + ' · 目标距离 ' + layoutData.coordinates[id][3];
+    const id = stateIdFromPointHit(hit);
+    const orbitId = abstractIdFromPointHit(hit);
+    if (graphMode === 'overview' && overviewVariant !== 'original') {
+      const orbit = overviewGraphs.quotient.nodes[orbitId];
+      const prefix = overviewVariant === 'skeleton' ? '骨架锚点' : '镜像类';
+      ui['node-tooltip'].textContent = hit.object.userData.expanded
+        ? `展开状态 #${id} · 所属${prefix} · 点击可选为路径端点`
+        : `${prefix} · 代表 #${id} · ${orbit.members.length} 个具体状态` + (overviewVariant === 'quotient' ? ' · 双击展开' : '');
+    } else {
+      ui['node-tooltip'].textContent = '#' + id + ' · 起点距离 ' + graphData.states[id].distance + ' · 目标距离 ' + layoutData.coordinates[id][3];
+    }
+    ui['node-tooltip'].style.left = event.offsetX + 12 + 'px'; ui['node-tooltip'].style.top = event.offsetY + 12 + 'px';
+  } else if (edgeHit) {
+    const edge = overviewGraphs.skeleton.edges[edgeIdFromLineHit(edgeHit)];
+    ui['node-tooltip'].textContent = `压缩路径 · ${edge.weight} 步 · 双击展开具体商节点`;
     ui['node-tooltip'].style.left = event.offsetX + 12 + 'px'; ui['node-tooltip'].style.top = event.offsetY + 12 + 'px';
   }
 });
@@ -996,6 +1690,8 @@ document.getElementById('pick-start').onclick = () => { selectionMode = 'start';
 document.getElementById('pick-end').onclick = () => { selectionMode = 'end'; syncRouteControls(); };
 document.getElementById('route-play').onclick = animateSelectedRoute;
 document.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => setGraphMode(button.dataset.mode));
+document.querySelectorAll('[data-overview-variant]').forEach(button => button.onclick = () => setOverviewVariant(button.dataset.overviewVariant));
+ui['overview-collapse'].onclick = clearOverviewExpansion;
 document.getElementById('theme').onclick = () => { document.documentElement.classList.toggle('dark'); updateSceneTheme(); };
 
 const leanPieceNames = ['caoCao', 'guanYu', 'zhangFei', 'zhaoYun', 'maChao', 'huangZhong', 'soldier1', 'soldier2', 'soldier3', 'soldier4'];
@@ -1144,6 +1840,9 @@ for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListene
 
 if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
   setMode: mode => setGraphMode(mode),
+  setOverviewVariant: variant => setOverviewVariant(variant),
+  expandOrbit,
+  expandCorridor,
   selectStart: id => { selectionMode = 'start'; routeStartPinned = true; return selectRouteNode(id); },
   selectEnd: id => { selectionMode = 'end'; return selectRouteNode(id); },
   locateCurrent,
@@ -1158,12 +1857,13 @@ if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
   },
   stop: cancelAnimation,
   state: () => ({
-    current, graphMode, routeStart, routeEnd, routeLength: routePath.length,
+    current, graphMode, overviewVariant, overviewExpansion, routeStart, routeEnd, routeLength: routePath.length,
     explored: exploredNodes.size, shown: exploreNodeIds.length, isAnimating,
     cameraDistance: graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target),
     pointSize: pointCloud?.material.size, sizeAttenuation: pointCloud?.material.sizeAttenuation,
     markerScale: graphMode === 'force' ? forceCurrentMarker?.scale.x : currentMarker?.scale.x,
-    forceReady: Boolean(forceGraph), forcePinned, forceNodeCount: forceNodes.length, forceLinkCount: forceLinks.length
+    forceReady: Boolean(forceGraph), forcePinned, forceNodeCount: forceNodes.length, forceLinkCount: forceLinks.length,
+    quotientNodes: overviewGraphs?.quotient.nodes.length, skeletonNodes: overviewGraphs?.skeleton.nodes.length
   })
 };
 new ResizeObserver(resizeRenderer).observe(ui['graph-wrap']);

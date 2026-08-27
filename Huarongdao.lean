@@ -8,6 +8,7 @@ import Huarongdao.ClassicSolution
 import Huarongdao.Symmetry
 import Huarongdao.Quotient
 import Huarongdao.Search
+import Huarongdao.ClassicCertificate
 import Huarongdao.Minimality
 import Huarongdao.ProofGame
 import Huarongdao.Bottleneck
