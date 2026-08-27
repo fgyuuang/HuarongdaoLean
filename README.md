@@ -232,6 +232,8 @@ http://127.0.0.1:4173/?mode=lab
 
 要求 Lean 4.33.1、Lake、Node.js 20 或更高版本。
 
+Windows 下可直接双击 `start-huarongdao.cmd`，脚本会按需安装依赖、构建缺失产物、启动本地服务并打开关卡实验室。
+
 ```bash
 lake build
 lake exe huarongdao

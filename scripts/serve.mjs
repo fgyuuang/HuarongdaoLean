@@ -68,6 +68,9 @@ function runSolver(args, timeoutMs) {
 createServer(async (request, response) => {
   try {
     const url = new URL(request.url, 'http://localhost');
+    if (request.method === 'GET' && url.pathname === '/api/health') {
+      return sendJson(response, 200, { app: 'huarongdao-lean-visualizer', status: 'ok' });
+    }
     if (request.method === 'POST' && url.pathname === '/api/puzzle/solve') {
       const payload = await readJson(request);
       const { args, timeoutMs } = solverArgs(payload);
