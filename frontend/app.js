@@ -27,7 +27,7 @@ const dataFiles = {
   mirror: { graph: 'graph.mirror.json', layout: 'layout.mirror.json' },
   corridor: { graph: 'graph.corridor.json', layout: 'layout.corridor.json' }
 }[stateSpaceLayer];
-const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length'.split(' ');
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle goal-sink-toggle cao-position-filter cao-trace-detail'.split(' ');
 const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
 let graphData, layoutData, parentGraphData = null, outgoing, shortestGoalDistance = 0, shortestOperationDistance = 0;
@@ -41,8 +41,8 @@ const exploredEdges = new Map();
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
-const renderer = new THREE.WebGLRenderer({ canvas: ui.graph, antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ canvas: ui.graph, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -51,19 +51,27 @@ controls.minDistance = 1;
 controls.maxDistance = 600;
 const graphGroup = new THREE.Group();
 const overviewGroup = new THREE.Group();
+const caoProjectionGroup = new THREE.Group();
+const goalSinkGroup = new THREE.Group();
 const exploreGroup = new THREE.Group();
+overviewGroup.add(caoProjectionGroup, goalSinkGroup);
 graphGroup.add(overviewGroup, exploreGroup);
 scene.add(graphGroup);
 const raycaster = new THREE.Raycaster();
 raycaster.params.Points.threshold = 0.8;
 const pointer = new THREE.Vector2();
 let pointCloud = null, overviewPoints = null, overviewEdges = null, overviewMacroEdges = null, overviewEndpointPoints = null, contractionLines = null, explorePoints = null, exploreEdges = null;
+let caoProjectionPoints = null, caoProjectionEdges = null, caoGroups = [], caoGroupByState = null, caoPositions = null;
+let goalSinkPoints = null, goalSinkEdges = null, goalSinkMacroEdges = null, goalSinkBoundaryEdges = null;
+let goalSinkPositions = null, goalSinkPosition = null, goalSinkMarker = null, goalSinkIndex = -1;
+let goalSinkRepresentative = 0, goalSinkStateCount = 0, goalSinkEdgeCount = 0;
 let pathLines = null, historyLines = null, currentMarker = null, startMarker = null, endMarker = null, edgePairs = [];
 let edgeWeights = new Map(), macroEndpointIds = new Set();
 let macroEdgeCount = 0;
 let graphPositions = null, graphCenter = new THREE.Vector3(), graphSize = 100, exploreNodeIds = [];
 let overviewVisualPositions = null, contractionPairs = [], contractionProgress = 1, contractionAnimationToken = 0;
-let pointerDown = null;
+let pointerDown = null, hoverPosition = null, hoverFrame = null, lastHoverPick = 0;
+let caoViewEnabled = false, caoMergeEnabled = false, goalSinkEnabled = false, caoFilterKey = 'current', lastCaoStyledKey = null;
 let keyboardFocus = 'board';
 let graphKeyboardIndex = 0;
 let randomWalkTimer = null;
@@ -74,6 +82,8 @@ let forceWidth = 0, forceHeight = 0, forceInitialFit = true;
 let localTopologyView = null, localTopologyViewPromise = null;
 let topologyAnimationToken = 0;
 const forcePointer = { x: 0, y: 0 };
+let forcePointerDown = null, forceDragActive = false;
+let lastZoomText = '', rendererHeight = 1;
 // Explore mode uses a small, incremental force simulation. Positions are kept
 // between rebuilds so adding frontier nodes does not make the graph jump.
 const exploreForce = {
@@ -112,6 +122,12 @@ function updateSceneTheme() {
     contractionLines.material.opacity =
       lineBase * (0.25 + 0.75 * Math.sin(Math.PI * contractionProgress));
   }
+  if (caoProjectionEdges) caoProjectionEdges.material.color.set(dark ? 0xdf8b70 : 0x9f2d2d);
+  if (goalSinkPoints) goalSinkPoints.material.color.set(dark ? 0xaab3ae : 0x59635e);
+  if (goalSinkEdges) goalSinkEdges.material.color.set(dark ? 0x76807b : 0x7a857f);
+  if (goalSinkMacroEdges) goalSinkMacroEdges.material.color.set(dark ? 0x78bddc : 0x2f789d);
+  if (goalSinkBoundaryEdges) goalSinkBoundaryEdges.material.color.set(dark ? 0x56c7b9 : 0x28736d);
+  updateCaoViewStyles(false);
   if (forceGraph) {
     forceGraph
       .backgroundColor(dark ? '#1b1f1c' : '#f2f3ef')
@@ -390,6 +406,242 @@ function makePointTexture() {
 }
 const pointTexture = makePointTexture();
 
+function caoPositionKey(state) { return state.positions[0].join(','); }
+function caoPositionLabel(key) {
+  const [x, y] = key.split(',').map(Number);
+  return `(${x}, ${y})`;
+}
+function effectiveCaoFilterKey() {
+  if (caoFilterKey === 'all') return 'all';
+  if (caoFilterKey === 'current') return graphData ? caoPositionKey(graphData.states[current]) : 'all';
+  return caoFilterKey;
+}
+function caoPositionColor(y) {
+  const palettes = isDarkTheme()
+    ? [0xf2bd66, 0x7fd0a9, 0xed8b73, 0x63cbd0]
+    : [0xa86d14, 0x28745a, 0xb44937, 0x187078];
+  return new THREE.Color(palettes[Math.max(0, Math.min(palettes.length - 1, y))]);
+}
+function buildCaoProjection() {
+  const groupsByKey = new Map();
+  for (const state of graphData.states) {
+    const key = caoPositionKey(state);
+    if (!groupsByKey.has(key)) groupsByKey.set(key, { key, position: state.positions[0], members: [] });
+    groupsByKey.get(key).members.push(state.id);
+  }
+  caoGroups = [...groupsByKey.values()]
+    .sort((a, b) => a.position[1] - b.position[1] || a.position[0] - b.position[0])
+    .map((group, id) => ({ ...group, id, representative: group.members[0] }));
+  caoGroupByState = new Int32Array(graphData.states.length);
+  for (const group of caoGroups) for (const id of group.members) caoGroupByState[id] = group.id;
+
+  caoPositions = new Float32Array(caoGroups.length * 3);
+  for (const group of caoGroups) {
+    const [x, y] = group.position;
+    caoPositions.set([(x - 1) * 28, (1.5 - y) * 24, Math.log2(group.members.length + 1) * 1.8], group.id * 3);
+  }
+  const pointGeometry = new THREE.BufferGeometry();
+  pointGeometry.setAttribute('position', new THREE.BufferAttribute(caoPositions, 3));
+  caoProjectionPoints = new THREE.Points(pointGeometry, new THREE.PointsMaterial({
+    color: 0xffffff, size: 10, sizeAttenuation: false, map: pointTexture,
+    alphaTest: 0.4, transparent: true, opacity: 0.94, depthWrite: false, vertexColors: true
+  }));
+  caoProjectionPoints.userData.nodeIds = Int32Array.from(caoGroups, group => group.representative);
+  caoProjectionPoints.userData.caoGroupIds = Int32Array.from(caoGroups, group => group.id);
+  caoProjectionGroup.add(caoProjectionPoints);
+
+  const seen = new Set(), projected = [];
+  for (const edge of graphData.edges) {
+    if (edge.piece !== 0) continue;
+    const source = caoGroupByState[edge.source], target = caoGroupByState[edge.target];
+    if (source === target) continue;
+    const key = Math.min(source, target) + ':' + Math.max(source, target);
+    if (seen.has(key)) continue;
+    seen.add(key); projected.push([source, target]);
+  }
+  const edgePositions = new Float32Array(projected.length * 6);
+  projected.forEach(([source, target], index) => {
+    edgePositions.set(caoPositions.subarray(source * 3, source * 3 + 3), index * 6);
+    edgePositions.set(caoPositions.subarray(target * 3, target * 3 + 3), index * 6 + 3);
+  });
+  const edgeGeometry = new THREE.BufferGeometry();
+  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+  caoProjectionEdges = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({
+    color: isDarkTheme() ? 0xdf8b70 : 0x9f2d2d, transparent: true, opacity: 0.72, depthWrite: false
+  }));
+  caoProjectionGroup.add(caoProjectionEdges);
+  caoProjectionGroup.visible = false;
+  populateCaoPositionFilter();
+  updateCaoViewStyles(false);
+}
+function populateCaoPositionFilter() {
+  const select = ui['cao-position-filter'];
+  select.querySelectorAll('option[data-position]').forEach(option => option.remove());
+  for (const group of caoGroups) {
+    const option = document.createElement('option');
+    option.value = group.key; option.dataset.position = group.key;
+    option.textContent = `${caoPositionLabel(group.key)} · ${group.members.length.toLocaleString()} 状态`;
+    select.append(option);
+  }
+  select.value = caoFilterKey;
+}
+function applyCaoPointColors(points, nodeIds) {
+  if (!points || !nodeIds) return;
+  const selectedKey = effectiveCaoFilterKey();
+  const muted = new THREE.Color(isDarkTheme() ? 0x303834 : 0xd5d9d6);
+  const colors = new Float32Array(nodeIds.length * 3);
+  for (let index = 0; index < nodeIds.length; index += 1) {
+    const key = caoPositionKey(graphData.states[nodeIds[index]]);
+    const matched = selectedKey === 'all' || key === selectedKey;
+    (matched ? caoPositionColor(Number(key.split(',')[1])) : muted).toArray(colors, index * 3);
+  }
+  points.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  points.material.color.set(0xffffff); points.material.vertexColors = true; points.material.needsUpdate = true;
+}
+function updateCaoViewStyles(rebuildExplore = true) {
+  if (!graphData || !overviewPoints) return;
+  if (caoViewEnabled) applyCaoPointColors(overviewPoints, overviewPoints.userData.nodeIds);
+  else {
+    overviewPoints.material.vertexColors = false;
+    overviewPoints.material.color.set(isDarkTheme() ? 0xaab3ae : 0x59635e);
+    overviewPoints.material.needsUpdate = true;
+  }
+  if (caoProjectionPoints) applyCaoPointColors(caoProjectionPoints, caoProjectionPoints.userData.nodeIds);
+  if (forceGraph) forceGraph.nodeColor(forceNodeColor).refresh();
+  if (rebuildExplore && graphMode === 'explore') rebuildExploreGraph();
+  lastCaoStyledKey = caoViewEnabled ? effectiveCaoFilterKey() : null;
+  ui['cao-controls'].classList.toggle('active', caoViewEnabled || caoMergeEnabled || goalSinkEnabled);
+  ui['cao-position-filter'].disabled = !caoViewEnabled;
+}
+function setCaoMerge(enabled, refit = true) {
+  caoMergeEnabled = Boolean(enabled);
+  if (caoMergeEnabled && goalSinkEnabled) {
+    goalSinkEnabled = false;
+    ui['goal-sink-toggle'].checked = false;
+  }
+  syncOverviewProjection();
+  updateCaoViewStyles(false); updateGraphState();
+  if (refit && graphMode === 'overview') requestAnimationFrame(fitGraph);
+}
+function syncOverviewProjection() {
+  const showBase = !caoMergeEnabled && !goalSinkEnabled;
+  for (const object of [overviewPoints, overviewEdges, overviewMacroEdges, overviewEndpointPoints, contractionLines]) {
+    if (object) object.visible = showBase;
+  }
+  caoProjectionGroup.visible = caoMergeEnabled;
+  goalSinkGroup.visible = goalSinkEnabled;
+  if (graphMode === 'overview') pointCloud = caoMergeEnabled ? caoProjectionPoints : goalSinkEnabled ? goalSinkPoints : overviewPoints;
+  const projectionActive = caoMergeEnabled || goalSinkEnabled;
+  ui['quotient-contract']?.toggleAttribute('disabled', projectionActive);
+  ui['quotient-contract-toggle']?.toggleAttribute('disabled', projectionActive);
+}
+function setGoalSink(enabled, refit = true) {
+  goalSinkEnabled = Boolean(enabled);
+  if (goalSinkEnabled && caoMergeEnabled) {
+    caoMergeEnabled = false;
+    ui['cao-merge-toggle'].checked = false;
+  }
+  syncOverviewProjection();
+  ui['cao-controls'].classList.toggle('active', caoViewEnabled || caoMergeEnabled || goalSinkEnabled);
+  updateGraphState();
+  if (refit && graphMode === 'overview') requestAnimationFrame(fitGraph);
+}
+function caoTraceStats() {
+  let moves = 0, downMoves = 0, firstDown = null;
+  for (let index = 0; index < historyEdges.length; index += 1) {
+    const edge = historyEdges[index];
+    const steps = edge.steps?.length ? edge.steps : [edge];
+    for (const step of steps) {
+      if (step.piece !== 0) continue;
+      moves += 1;
+      if (step.direction === '下') { downMoves += 1; if (firstDown === null) firstDown = index + 1; }
+    }
+  }
+  return { moves, downMoves, firstDown };
+}
+function updateCaoTraceDetail() {
+  if (!graphData || !caoGroups.length) return;
+  const key = caoPositionKey(graphData.states[current]);
+  const group = caoGroups[caoGroupByState[current]], trace = caoTraceStats();
+  ui['cao-trace-detail'].textContent = `曹操 ${caoPositionLabel(key)} · 同位 ${group.members.length.toLocaleString()} · 轨迹移动 ${trace.moves} 次 · 向下 ${trace.downMoves} 次${trace.firstDown === null ? '' : ` · 首次第 ${trace.firstDown} 步`}`;
+}
+
+function goalSinkEdgeGeometry(pairs) {
+  const positions = new Float32Array(pairs.length * 6);
+  pairs.forEach(([source, target], index) => {
+    positions.set(goalSinkPositions.subarray(source * 3, source * 3 + 3), index * 6);
+    positions.set(goalSinkPositions.subarray(target * 3, target * 3 + 3), index * 6 + 3);
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  return geometry;
+}
+
+function buildGoalSinkProjection() {
+  const goals = graphData.states.filter(state => state.goal);
+  if (!goals.length) return;
+  goalSinkStateCount = goals.length;
+  const goalDistance = state => isCorridorSpace ? state.primitiveDistance : state.distance;
+  goalSinkRepresentative = goals.reduce((best, state) => goalDistance(state) < goalDistance(best) ? state : best).id;
+
+  const nonGoals = graphData.states.filter(state => !state.goal);
+  const visualByState = new Int32Array(graphData.states.length); visualByState.fill(-1);
+  const nodeIds = new Int32Array(nonGoals.length + 1);
+  goalSinkPositions = new Float32Array((nonGoals.length + 1) * 3);
+  nonGoals.forEach((state, index) => {
+    visualByState[state.id] = index;
+    nodeIds[index] = state.id;
+    goalSinkPositions.set(graphPositions.subarray(state.id * 3, state.id * 3 + 3), index * 3);
+  });
+  goalSinkIndex = nonGoals.length;
+  nodeIds[goalSinkIndex] = goalSinkRepresentative;
+  goalSinkPosition = new THREE.Vector3();
+  const goalPosition = new THREE.Vector3();
+  for (const state of goals) goalSinkPosition.add(goalPosition.fromArray(graphPositions, state.id * 3));
+  goalSinkPosition.multiplyScalar(1 / goals.length);
+  goalSinkPositions.set(goalSinkPosition.toArray(), goalSinkIndex * 3);
+
+  const pointGeometry = new THREE.BufferGeometry();
+  pointGeometry.setAttribute('position', new THREE.BufferAttribute(goalSinkPositions, 3));
+  goalSinkPoints = new THREE.Points(pointGeometry, new THREE.PointsMaterial({
+    color: isDarkTheme() ? 0xaab3ae : 0x59635e, size: 2.1, sizeAttenuation: false,
+    map: pointTexture, alphaTest: 0.45, transparent: true, opacity: 0.84, depthWrite: false
+  }));
+  goalSinkPoints.userData.nodeIds = nodeIds;
+  goalSinkPoints.userData.goalSinkIndex = goalSinkIndex;
+  goalSinkGroup.add(goalSinkPoints);
+
+  const ordinary = [], macro = [], boundary = [], seen = new Set();
+  for (const edge of graphData.edges) {
+    const sourceGoal = graphData.states[edge.source].goal;
+    const targetGoal = graphData.states[edge.target].goal;
+    const source = sourceGoal ? goalSinkIndex : visualByState[edge.source];
+    const target = targetGoal ? goalSinkIndex : visualByState[edge.target];
+    if (source === target) continue;
+    const key = edgeKey(source, target);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (sourceGoal || targetGoal) boundary.push([source, target]);
+    else if (isCorridorSpace && (edge.weight || 1) > 1) macro.push([source, target]);
+    else ordinary.push([source, target]);
+  }
+  goalSinkEdgeCount = seen.size;
+  goalSinkEdges = new THREE.LineSegments(goalSinkEdgeGeometry(ordinary), new THREE.LineBasicMaterial({
+    color: isDarkTheme() ? 0x76807b : 0x7a857f, transparent: true,
+    opacity: stateSpaceEdgeOpacity(), depthWrite: false
+  }));
+  goalSinkMacroEdges = new THREE.LineSegments(goalSinkEdgeGeometry(macro), new THREE.LineBasicMaterial({
+    color: isDarkTheme() ? 0x78bddc : 0x2f789d, transparent: true, opacity: 0.74, depthWrite: false
+  }));
+  goalSinkBoundaryEdges = new THREE.LineSegments(goalSinkEdgeGeometry(boundary), new THREE.LineBasicMaterial({
+    color: isDarkTheme() ? 0x56c7b9 : 0x28736d, transparent: true, opacity: 0.82, depthWrite: false
+  }));
+  goalSinkMarker = makeRingMarker('#39a99b', '#f1c15f', 26);
+  goalSinkMarker.position.copy(goalSinkPosition);
+  goalSinkGroup.add(goalSinkEdges, goalSinkMacroEdges, goalSinkBoundaryEdges, goalSinkMarker);
+  goalSinkGroup.visible = false;
+}
+
 function buildFullGraph() {
   const count = graphData.states.length;
   const raw = layoutData.coordinates;
@@ -502,6 +754,8 @@ function buildFullGraph() {
     }));
     overviewGroup.add(overviewEndpointPoints);
   }
+  buildCaoProjection();
+  buildGoalSinkProjection();
 
   currentMarker = makeRingMarker('#9f2d2d', '#ffffff', 22);
   startMarker = makeRingMarker('#d6a342', '#6f531f', 16);
@@ -620,6 +874,11 @@ function prepareForceGraphData() {
 }
 
 function forceNodeColor(node) {
+  if (caoViewEnabled) {
+    const key = caoPositionKey(graphData.states[node.id]), selectedKey = effectiveCaoFilterKey();
+    if (selectedKey !== 'all' && key !== selectedKey) return isDarkTheme() ? '#303834' : '#d5d9d6';
+    return '#' + caoPositionColor(Number(key.split(',')[1])).getHexString();
+  }
   if (isCorridorSpace && macroEndpointIds.has(Number(node.id))) return isDarkTheme() ? '#f0c36a' : '#c47a1c';
   if (node.goal) return isDarkTheme() ? '#56c7b9' : '#28736d';
   if (node.goalDistance <= 20) return isDarkTheme() ? '#d4a651' : '#9a6b25';
@@ -910,6 +1169,8 @@ function pinForceReferenceShape() {
 
 function nodePosition(id, target = new THREE.Vector3()) {
   if (graphMode === 'explore' && exploreForce.positions.has(id)) return target.copy(exploreForce.positions.get(id));
+  if (graphMode === 'overview' && caoMergeEnabled && caoPositions) return target.fromArray(caoPositions, caoGroupByState[id] * 3);
+  if (graphMode === 'overview' && goalSinkEnabled && graphData.states[id].goal) return target.copy(goalSinkPosition);
   return target.fromArray(graphPositions, id * 3);
 }
 function recordExploration(from, to) {
@@ -1017,12 +1278,15 @@ function rebuildExploreGraph() {
   const discoveredColor = new THREE.Color(dark ? 0xd3dbd7 : 0x34443d);
   const frontierColor = new THREE.Color(dark ? 0x61706a : 0x7a8982);
   const endpointColor = new THREE.Color(dark ? 0xf0c36a : 0xc47a1c);
+  const mutedCaoColor = new THREE.Color(dark ? 0x303834 : 0xd5d9d6);
+  const selectedCaoKey = effectiveCaoFilterKey();
   exploreNodeIds.forEach((id, index) => {
     const position = seedExplorePosition(id, index);
     positions.set(position.toArray(), index * 3);
-    const color = isCorridorSpace && macroEndpointIds.has(id)
-      ? endpointColor
-      : exploredNodes.has(id) ? discoveredColor : frontierColor;
+    const key = caoPositionKey(graphData.states[id]);
+    const color = caoViewEnabled
+      ? (selectedCaoKey === 'all' || key === selectedCaoKey ? caoPositionColor(Number(key.split(',')[1])) : mutedCaoColor)
+      : isCorridorSpace && macroEndpointIds.has(id) ? endpointColor : exploredNodes.has(id) ? discoveredColor : frontierColor;
     colors.set([color.r, color.g, color.b], index * 3);
   });
   const pointGeometry = new THREE.BufferGeometry();
@@ -1100,18 +1364,31 @@ function updateGraphState() {
   pathLines = makePath(routePath, isDarkTheme() ? 0xffffff : 0x27302b, 1, true);
   if (pathLines) graphGroup.add(pathLines);
   syncForceMarkerPositions();
+  if (caoViewEnabled && caoFilterKey === 'current' && lastCaoStyledKey !== effectiveCaoFilterKey()) updateCaoViewStyles(false);
+  updateCaoTraceDetail();
   if (graphMode === 'overview') {
-    updateQuotientContraction(contractionProgress);
-    if (isCorridorSpace) {
+    if (caoMergeEnabled) {
+      ui['explored-count'].textContent = caoGroups.length.toLocaleString();
+      ui['graph-summary'].textContent = '曹操同位投影 · 当前 #' + current + ' · ' + caoGroups.length + ' 个位置组 · 红色连线表示曹操移动';
+    } else if (goalSinkEnabled) {
+      ui['graph-count-label'].textContent = '目标汇聚后节点';
+      ui['explored-count'].textContent = (graphData.states.length - goalSinkStateCount + 1).toLocaleString();
+      ui['graph-summary'].textContent = '终局汇点 · ' + goalSinkStateCount.toLocaleString() +
+        ' 个成功状态归为 1 点 · ' + goalSinkEdgeCount.toLocaleString() +
+        ' 条投影连接 · 最短距离保持 ' + shortestGoalDistance;
+    } else if (isCorridorSpace) {
+      updateQuotientContraction(contractionProgress);
       ui['graph-summary'].textContent = '决策骨架 · 当前 #' + current + ' · ' +
         macroEdgeCount.toLocaleString() + ' 条蓝色归并边 · ' +
         (edgePairs.length - macroEdgeCount).toLocaleString() + ' 条灰色单步边 · ' +
         graphData.meta.suppressedStateCount.toLocaleString() + ' 个中间状态已隐藏 · 加权最短距离保持 ' + shortestGoalDistance;
     } else if (isShapeSpace) {
+      updateQuotientContraction(contractionProgress);
       ui['graph-summary'].textContent = '同形标签商 · 当前 #' + current + ' · ' +
         graphData.states.length.toLocaleString() + ' 个状态 · ' +
         edgePairs.length.toLocaleString() + ' 条显示边';
     } else {
+      updateQuotientContraction(contractionProgress);
       ui['graph-summary'].textContent = '镜像两端向中点粘连 · 当前 #' + current + ' · 合并度 ' +
         Math.round(contractionProgress * 100) + '% · ' + edgePairs.length.toLocaleString() + ' 条商边';
     }
@@ -1119,7 +1396,7 @@ function updateGraphState() {
     ui['explored-count'].textContent = graphData.states.length.toLocaleString();
     ui['graph-summary'].textContent = '3d-force-graph · 当前 #' + current + ' · ' + (forcePinned ? '参考坐标固定' : 'd3-force-3d 有限松弛') + ' · ' + edgePairs.length.toLocaleString() + ' 条连接';
   }
-  ui['zoom-label'].textContent = Math.round(graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target)) + 'u';
+  updateZoomLabel(graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target));
 }
 
 function shortestPath(start, target) {
@@ -1132,6 +1409,20 @@ function shortestPath(start, target) {
   }
   if (parent[target] === -2) return [];
   const path = []; for (let node = target; node !== -1; node = parent[node]) path.push(node); return path.reverse();
+}
+function nearestGoalNode(start) {
+  if (graphData.states[start]?.goal) return start;
+  const seen = new Uint8Array(graphData.states.length); seen[start] = 1;
+  const queue = new Int32Array(graphData.states.length); let head = 0, tail = 1; queue[0] = start;
+  while (head < tail) {
+    const node = queue[head++];
+    for (const edge of outgoing[node]) {
+      if (seen[edge.target]) continue;
+      if (graphData.states[edge.target].goal) return edge.target;
+      seen[edge.target] = 1; queue[tail++] = edge.target;
+    }
+  }
+  return goalSinkRepresentative;
 }
 function syncRouteControls() {
   ui['route-start-id'].textContent = '#' + routeStart;
@@ -1226,10 +1517,14 @@ function setGraphMode(mode, refit = true) {
   }
   if (previousMode === 'force' && mode !== 'force' && forceGraph) forceGraph.pauseAnimation();
   graphMode = mode;
-  if (ui['quotient-contract']) ui['quotient-contract'].disabled = mode !== 'overview' || !isMirrorSpace;
-  if (ui['quotient-contract-toggle']) ui['quotient-contract-toggle'].disabled = mode !== 'overview' || !isMirrorSpace;
+  const projectionActive = caoMergeEnabled || goalSinkEnabled;
+  if (ui['quotient-contract']) ui['quotient-contract'].disabled = mode !== 'overview' || !isMirrorSpace || projectionActive;
+  if (ui['quotient-contract-toggle']) ui['quotient-contract-toggle'].disabled = mode !== 'overview' || !isMirrorSpace || projectionActive;
+  ui['goal-sink-toggle'].disabled = mode !== 'overview';
   overviewGroup.visible = mode === 'overview'; exploreGroup.visible = mode === 'explore';
-  pointCloud = mode === 'overview' ? overviewPoints : mode === 'explore' ? explorePoints : null;
+  pointCloud = mode === 'overview'
+    ? (caoMergeEnabled ? caoProjectionPoints : goalSinkEnabled ? goalSinkPoints : overviewPoints)
+    : mode === 'explore' ? explorePoints : null;
   ui.graph.hidden = mode === 'force' || mode === 'topology';
   ui['graph-force'].hidden = mode !== 'force';
   document.getElementById('local-topology-view').hidden = mode !== 'topology';
@@ -1279,13 +1574,17 @@ function fitGraph() {
     fitForceGraphToTarget();
     return;
   }
-  if (graphMode === 'explore' && exploreGroup.children.length) {
-    const box = new THREE.Box3().setFromObject(exploreGroup);
+  if ((graphMode === 'explore' && exploreGroup.children.length) ||
+      (graphMode === 'overview' && (caoMergeEnabled || goalSinkEnabled))) {
+    const projection = caoMergeEnabled ? caoProjectionGroup : goalSinkGroup;
+    const box = new THREE.Box3().setFromObject(graphMode === 'explore' ? exploreGroup : projection);
     const center = box.getCenter(new THREE.Vector3());
     const dimensions = box.getSize(new THREE.Vector3());
     const size = Math.max(4, dimensions.length());
     controls.target.copy(center);
-    camera.position.copy(center).add(new THREE.Vector3(0, 0, Math.max(12, size * 1.18)));
+    camera.position.copy(center).add(graphMode === 'explore'
+      ? new THREE.Vector3(0, 0, Math.max(12, size * 1.18))
+      : new THREE.Vector3(size * 0.78, size * 0.48, size * 0.96));
     camera.near = 0.05; camera.far = 1200; camera.updateProjectionMatrix(); controls.update();
     ui['zoom-label'].textContent = Math.round(camera.position.distanceTo(controls.target)) + 'u';
     return;
@@ -1307,6 +1606,7 @@ function fitGraph() {
 function resizeRenderer() {
   const rect = ui['graph-wrap'].getBoundingClientRect();
   const width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height));
+  rendererHeight = height;
   if (graphMode !== 'force') {
     const canvas = renderer.domElement;
     if (canvas.width !== Math.round(width * renderer.getPixelRatio()) || canvas.height !== Math.round(height * renderer.getPixelRatio())) renderer.setSize(width, height, false);
@@ -1318,61 +1618,106 @@ function resizeRenderer() {
   }
 }
 function updateMarkerScales() {
-  const height = Math.max(1, renderer.domElement.clientHeight);
+  const height = rendererHeight;
   const field = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-  for (const marker of [currentMarker, startMarker, endMarker]) {
+  for (const marker of [currentMarker, startMarker, endMarker, goalSinkEnabled ? goalSinkMarker : null]) {
     if (!marker) continue;
     const worldSize = marker.position.distanceTo(camera.position) * field * marker.userData.pixelDiameter / height;
     marker.scale.set(worldSize, worldSize, 1);
   }
 }
+function updateZoomLabel(distance) {
+  const text = Math.round(distance) + 'u';
+  if (text === lastZoomText) return;
+  lastZoomText = text; ui['zoom-label'].textContent = text;
+}
 function animate(now = performance.now()) {
-  requestAnimationFrame(animate); resizeRenderer();
+  requestAnimationFrame(animate);
   if (graphMode === 'force') {
     syncForceMarkerScales();
-    ui['zoom-label'].textContent = Math.round(forceCameraDistance()) + 'u';
+    updateZoomLabel(forceCameraDistance());
     return;
   }
   controls.update();
   if (graphMode === 'explore') updateExploreForce(now);
-  updateMarkerScales(); renderer.render(scene, camera);
+  updateMarkerScales(); updateZoomLabel(camera.position.distanceTo(controls.target)); renderer.render(scene, camera);
 }
 requestAnimationFrame(animate);
 
-function pickNode(event) {
+function pickNode(clientX, clientY) {
+  if (!pointCloud) return null;
   const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   raycaster.params.Points.threshold = Math.max(0.12, camera.position.distanceTo(controls.target) / (graphMode === 'explore' ? 105 : 170));
   return raycaster.intersectObject(pointCloud, false)[0];
 }
-renderer.domElement.addEventListener('pointerdown', event => { pointerDown = { x: event.clientX, y: event.clientY }; });
+renderer.domElement.addEventListener('pointerdown', event => {
+  pointerDown = { x: event.clientX, y: event.clientY };
+  hoverPosition = null; ui['node-tooltip'].classList.remove('visible');
+});
 renderer.domElement.addEventListener('pointerup', event => {
-  if (!pointerDown || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 5) return;
-  const hit = pickNode(event);
+  const start = pointerDown; pointerDown = null;
+  if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
+  const hit = pickNode(event.clientX, event.clientY);
   if (hit) {
-    const id = pointCloud.userData.nodeIds ? pointCloud.userData.nodeIds[hit.index] : hit.index;
+    const isGoalSink = goalSinkEnabled && hit.object === goalSinkPoints && hit.index === goalSinkIndex;
+    const id = isGoalSink
+      ? nearestGoalNode(routeStartPinned ? routeStart : current)
+      : pointCloud.userData.nodeIds ? pointCloud.userData.nodeIds[hit.index] : hit.index;
     selectRouteNode(id);
   }
 });
-renderer.domElement.addEventListener('pointermove', event => {
-  const hit = pointCloud ? pickNode(event) : null;
+function updateGraphHover(position) {
+  if (!position || pointerDown) return;
+  const { clientX, clientY } = position, hit = pickNode(clientX, clientY);
   ui['node-tooltip'].classList.toggle('visible', Boolean(hit));
   if (hit) {
     const id = pointCloud.userData.nodeIds ? pointCloud.userData.nodeIds[hit.index] : hit.index;
-    ui['node-tooltip'].textContent = '#' + id + ' · 起点距离 ' + graphData.states[id].distance + ' · 目标距离 ' + layoutData.coordinates[id][3];
-    ui['node-tooltip'].style.left = event.offsetX + 12 + 'px'; ui['node-tooltip'].style.top = event.offsetY + 12 + 'px';
+    const groupId = hit.object.userData.caoGroupIds?.[hit.index];
+    const cao = caoViewEnabled || caoMergeEnabled ? ' · 曹操 ' + caoPositionLabel(caoPositionKey(graphData.states[id])) : '';
+    const isGoalSink = goalSinkEnabled && hit.object === goalSinkPoints && hit.index === goalSinkIndex;
+    ui['node-tooltip'].textContent = isGoalSink
+      ? '成功逃脱 · ' + goalSinkStateCount.toLocaleString() + ' 个终局 · 点击导航到最近终局'
+      : groupId == null
+      ? '#' + id + ' · 起点距离 ' + graphData.states[id].distance + ' · 目标距离 ' + layoutData.coordinates[id][3] + cao
+      : '曹操 ' + caoPositionLabel(caoGroups[groupId].key) + ' · ' + caoGroups[groupId].members.length.toLocaleString() + ' 个状态 · 点击选择代表节点 #' + id;
+    const rect = renderer.domElement.getBoundingClientRect();
+    ui['node-tooltip'].style.left = clientX - rect.left + 12 + 'px'; ui['node-tooltip'].style.top = clientY - rect.top + 12 + 'px';
   }
-});
-renderer.domElement.addEventListener('pointerleave', () => ui['node-tooltip'].classList.remove('visible'));
+}
+function scheduleGraphHover(event) {
+  hoverPosition = { clientX: event.clientX, clientY: event.clientY };
+  if (pointerDown || hoverFrame !== null) return;
+  const run = now => {
+    if (now - lastHoverPick < 42) { hoverFrame = requestAnimationFrame(run); return; }
+    hoverFrame = null; lastHoverPick = now; updateGraphHover(hoverPosition);
+  };
+  hoverFrame = requestAnimationFrame(run);
+}
+renderer.domElement.addEventListener('pointermove', scheduleGraphHover);
+function clearGraphPointer() { pointerDown = null; hoverPosition = null; ui['node-tooltip'].classList.remove('visible'); }
+renderer.domElement.addEventListener('pointercancel', clearGraphPointer);
+renderer.domElement.addEventListener('pointerleave', clearGraphPointer);
 ui['graph-force']?.addEventListener('pointermove', event => {
   const rect = ui['graph-wrap'].getBoundingClientRect();
   forcePointer.x = event.clientX - rect.left;
   forcePointer.y = event.clientY - rect.top;
+  if (forcePointerDown && !forceDragActive && Math.hypot(event.clientX - forcePointerDown.x, event.clientY - forcePointerDown.y) > 4) {
+    forceDragActive = true; forceGraph?.enablePointerInteraction(false); updateForceTooltip(null);
+  }
   if (forceHoveredNode) updateForceTooltip(forceHoveredNode);
 });
-ui['graph-force']?.addEventListener('pointerleave', () => updateForceTooltip(null));
+ui['graph-force']?.addEventListener('pointerdown', event => { forcePointerDown = { x: event.clientX, y: event.clientY }; forceDragActive = false; });
+function finishForcePointer() {
+  forcePointerDown = null;
+  if (forceDragActive) requestAnimationFrame(() => forceGraph?.enablePointerInteraction(true));
+  forceDragActive = false;
+}
+ui['graph-force']?.addEventListener('pointerup', finishForcePointer);
+ui['graph-force']?.addEventListener('pointercancel', finishForcePointer);
+ui['graph-force']?.addEventListener('pointerleave', () => { finishForcePointer(); updateForceTooltip(null); });
 
 function formatForceValue(key, value) {
   return key === 'nodeSize' || key === 'repulsion' ? String(value) : Number(value).toFixed(2);
@@ -1446,8 +1791,17 @@ ui['state-space-layer']?.addEventListener('change', event => {
   const nextUrl = new URL(location.href);
   if (event.target.value === 'mirror') nextUrl.searchParams.delete('space');
   else nextUrl.searchParams.set('space', event.target.value);
+  if (!document.getElementById('classic-workspace').hidden) nextUrl.searchParams.delete('mode');
   nextUrl.searchParams.delete('view');
   location.href = nextUrl.toString();
+});
+ui['cao-view-toggle'].addEventListener('change', event => {
+  caoViewEnabled = event.target.checked; updateCaoViewStyles(); updateGraphState();
+});
+ui['cao-merge-toggle'].addEventListener('change', event => setCaoMerge(event.target.checked));
+ui['goal-sink-toggle'].addEventListener('change', event => setGoalSink(event.target.checked));
+ui['cao-position-filter'].addEventListener('change', event => {
+  caoFilterKey = event.target.value; updateCaoViewStyles(); updateGraphState();
 });
 document.getElementById('theme').onclick = () => { document.documentElement.classList.toggle('dark'); updateSceneTheme(); };
 
@@ -1652,6 +2006,13 @@ for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListene
 
 if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
   setMode: mode => setGraphMode(mode),
+  setCaoView: (enabled, filter = caoFilterKey) => {
+    caoViewEnabled = Boolean(enabled); caoFilterKey = filter;
+    ui['cao-view-toggle'].checked = caoViewEnabled; ui['cao-position-filter'].value = caoFilterKey;
+    updateCaoViewStyles(); updateGraphState();
+  },
+  setCaoMerge: enabled => { ui['cao-merge-toggle'].checked = Boolean(enabled); setCaoMerge(enabled); },
+  setGoalSink: enabled => { ui['goal-sink-toggle'].checked = Boolean(enabled); setGoalSink(enabled); },
   selectStart: id => { selectionMode = 'start'; routeStartPinned = true; return selectRouteNode(id); },
   selectEnd: id => { selectionMode = 'end'; return selectRouteNode(id); },
   fit: fitGraph,
@@ -1675,6 +2036,9 @@ if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
   stop: cancelAnimation,
   state: () => ({
     current, graphMode, routeStart, routeEnd, routeLength: routePath.length,
+    caoViewEnabled, caoMergeEnabled, goalSinkEnabled, caoFilterKey, effectiveCaoFilter: effectiveCaoFilterKey(),
+    caoTrace: caoTraceStats(), caoGroups: caoGroups.length,
+    goalSinkStateCount, goalSinkEdgeCount, goalSinkVisualCount: graphData.states.length - goalSinkStateCount + 1,
     explored: exploredNodes.size, shown: exploreNodeIds.length, isAnimating,
     cameraDistance: graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target),
     pointSize: pointCloud?.material.size, sizeAttenuation: pointCloud?.material.sizeAttenuation,
