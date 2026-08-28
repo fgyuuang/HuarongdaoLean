@@ -7,7 +7,9 @@ import Huarongdao.CorridorExport
 import Huarongdao.MathlibSymmetry
 import Huarongdao.Search
 import Huarongdao.ClassicCertificate
+import Huarongdao.ClassicLocalTopology
 import Huarongdao.Minimality
 import Huarongdao.ProofGame
 import Huarongdao.Bottleneck
+import Huarongdao.LocalTopology
 import Huarongdao.Generic

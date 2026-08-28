@@ -25,7 +25,7 @@
     <div class="header-actions">
       <button id="proof-trace-toggle" class="verified-button" title="打开实时 Lean 路径证明"><span></span>路径证明</button>
       <button id="proof-open" class="verified-button secondary" title="查看 Lean 4 形式化内容"><span></span>定理总览</button>
-      <button id="fit" class="icon-button" title="适应完整状态图">⌗</button>
+      <button id="fit" class="icon-button" title="全图适配并将目标置于中心">⌗</button>
       <button id="theme" class="icon-button" title="切换明暗主题">◐</button>
     </div>
   </header>
@@ -62,7 +62,7 @@
 
     <section class="graph-panel">
       <div class="graph-toolbar">
-        <div class="view-tabs"><button class="active" data-mode="overview">参考全览</button><button data-mode="force">3D 力导向</button><button data-mode="explore">局部探索</button></div>
+        <div class="view-tabs"><button class="active" data-mode="overview">参考全览</button><button data-mode="force">3D 力导向</button><button data-mode="explore">局部探索</button><button data-mode="topology">拓扑样本</button></div>
         <div class="route-tools">
           <button id="locate-current" class="tool-icon" title="快速定位当前状态">⌖</button>
           <button id="pick-start" class="route-pick" title="点击后在图中选择固定起点"><span>固定起点</span><b id="route-start-id">#0</b></button>
@@ -93,6 +93,15 @@
        <div id="graph-wrap" class="graph-wrap">
         <canvas id="graph" class="keyboard-surface" tabindex="0" aria-label="状态图。方向键沿合法边前进，WASD选择已开拓节点"></canvas>
         <div id="graph-force" class="force-graph-surface keyboard-surface" tabindex="0" aria-label="由 3d-force-graph 绘制的完整状态图。拖动旋转，滚轮缩放，点击选择路径端点" hidden></div>
+        <div id="local-topology-view" class="local-topology-view" hidden>
+          <canvas aria-label="节点 1409 的半径二局部拓扑子图。点击节点播放合法路径，拖动旋转，滚轮缩放"></canvas>
+          <div class="local-topology-heading"><small>SHAPE QUOTIENT · RADIUS 2</small><h2>代表性局部子图 <code>#1409</code></h2><p>四个交换方形与两个局部切分分支在同一邻域中相遇。</p></div>
+          <div class="local-topology-actions"><button data-local-action="fit" title="恢复局部子图视角">⌖</button><div class="local-square-mode" role="group" aria-label="交换方形显示方式"><button data-square-mode="show" class="active">红色渲染</button><button data-square-mode="hide">去掉方形</button></div></div>
+          <div class="local-topology-stats"><span><b data-local-stat="nodes">--</b> 节点</span><span><b data-local-stat="edges">--</b> 边</span><span><b data-local-stat="squares">--</b> 交换方形</span><span><b data-local-stat="components">--</b> 去心分支</span><span><b data-local-stat="euler">--</b> χ</span><span><b data-local-stat="betti">--</b> β₀,β₁,β₂</span></div>
+          <aside class="local-topology-analysis"><strong>拓扑解释</strong><p>红色为中心；绿色和金色区分移除中心后的两个连通分支；半透明红面是动作交换形成的二维方形胞腔。填入方形后仍有两个独立的一维环，没有二维空腔。</p><ol class="local-square-list"><li class="local-topology-loading">正在提取局部子图</li></ol><code>SquareAt state1409 a b · H₁(F₂) ≅ F₂²</code></aside>
+          <div class="local-topology-legend"><span><i class="center"></i>中心</span><span><i class="branch-a"></i>分支 A</span><span><i class="branch-b"></i>分支 B</span><span><i class="square"></i>交换方形</span></div>
+          <div class="local-topology-tooltip"></div>
+        </div>
         <div id="node-tooltip" class="node-tooltip"></div>
         <div id="force3d-actions" class="force3d-actions" hidden>
           <button id="force3d-reheat" type="button" title="释放参考坐标并重新运行 d3-force-3d">释放并重新加热</button>
@@ -181,7 +190,7 @@
   </dialog>
 
   <script src="vendor/3d-force-graph.min.js"></script>
-  <script type="module" src="app.js?v=local-state-spaces-3"></script>
+  <script type="module" src="app.js?v=local-topology-path-1"></script>
   <script type="module" src="laboratory.js?v=local-state-spaces-3"></script>
 </body>
 </html>

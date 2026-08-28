@@ -27,6 +27,13 @@
 - 统一 `StateSpace.Task` 内核、可组合投影同态和四层端到端具体路径提升
 - 图证书检查器验证商边、闭包、唯一代表、距离约束和目标下界
 - `classic116Play_minimal` 与 `ClassicStateSpaceKernel.concreteSolution_lower_bound` 将有限证书接入统一状态空间内核
+- 局部拓扑分析基础：节点度、二阶邻域、交换方形、Link 连通分支、局部维数与瓶颈候选
+
+交换方形在 Lean 中由 `ActionsCommuteAt` / `SquareAt` 定义：从同一状态执行两个不同动作时，两种执行顺序到达同一状态。`checkActionsCommuteAt_sound` 把可执行检查器的成功结果连接到这个命题，`actionsCommuteAt_steps` 则给出方形四条边对应的 `Step` 见证。当前 JavaScript 模块用于离线计算和筛选候选局部子图，不介入主状态图的可视化。
+
+经离线筛选，前端“拓扑样本”独立展示同形商节点 `#1409` 的半径 2 诱导子图。该样本包含 18 个节点、23 条无向边和 4 个交换方形；移除中心后分成 2 个连通分支，因而同时展示了由动作交换产生的二维胞腔和局部切分现象。
+
+该样本的正式研究结果、Lean 定理与计算证书边界见 [`LOCAL_TOPOLOGY_RESEARCH.md`](LOCAL_TOPOLOGY_RESEARCH.md)。
 
 ## 关卡实验室
 
