@@ -27,7 +27,7 @@ const dataFiles = {
   mirror: { graph: 'graph.mirror.json', layout: 'layout.mirror.json' },
   corridor: { graph: 'graph.corridor.json', layout: 'layout.corridor.json' }
 }[stateSpaceLayer];
-const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle goal-sink-toggle cao-position-filter cao-trace-detail'.split(' ');
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle cao-merge-label goal-sink-toggle cao-position-filter cao-trace-detail'.split(' ');
 const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
 let graphData, layoutData, parentGraphData = null, outgoing, shortestGoalDistance = 0, shortestOperationDistance = 0;
@@ -142,6 +142,7 @@ updateSceneTheme();
 
 async function loadGraph() {
   ui['state-space-layer'].value = stateSpaceLayer;
+  ui['cao-merge-label'].textContent = isShapeSpace ? '精确位置投影' : '镜像位置轨道';
   const requests = [fetch(dataFiles.graph), fetch(dataFiles.layout)];
   if (isCorridorSpace) requests.push(fetch('graph.mirror.json'));
   const [graphResponse, layoutResponse, parentResponse] = await Promise.all(requests);
@@ -406,10 +407,22 @@ function makePointTexture() {
 }
 const pointTexture = makePointTexture();
 
-function caoPositionKey(state) { return state.positions[0].join(','); }
+function rawCaoPosition(state) { return state.positions[0]; }
+function caoPositionKey(state) {
+  const [x, y] = rawCaoPosition(state);
+  return `${isShapeSpace ? x : Math.min(x, 2 - x)},${y}`;
+}
 function caoPositionLabel(key) {
   const [x, y] = key.split(',').map(Number);
+  if (!isShapeSpace && x !== 1) return `{(${x}, ${y}), (${2 - x}, ${y})}`;
   return `(${x}, ${y})`;
+}
+function caoGroupingName() {
+  return isShapeSpace ? '精确位置' : '镜像位置轨道';
+}
+function edgeMovesCao(edge) {
+  const steps = edge.steps?.length ? edge.steps : [edge];
+  return steps.some(step => step.piece === 0);
 }
 function effectiveCaoFilterKey() {
   if (caoFilterKey === 'all') return 'all';
@@ -426,7 +439,8 @@ function buildCaoProjection() {
   const groupsByKey = new Map();
   for (const state of graphData.states) {
     const key = caoPositionKey(state);
-    if (!groupsByKey.has(key)) groupsByKey.set(key, { key, position: state.positions[0], members: [] });
+    const [x, y] = key.split(',').map(Number);
+    if (!groupsByKey.has(key)) groupsByKey.set(key, { key, position: [x, y], members: [] });
     groupsByKey.get(key).members.push(state.id);
   }
   caoGroups = [...groupsByKey.values()]
@@ -452,9 +466,9 @@ function buildCaoProjection() {
 
   const seen = new Set(), projected = [];
   for (const edge of graphData.edges) {
-    if (edge.piece !== 0) continue;
     const source = caoGroupByState[edge.source], target = caoGroupByState[edge.target];
     if (source === target) continue;
+    if (!edgeMovesCao(edge)) continue;
     const key = Math.min(source, target) + ':' + Math.max(source, target);
     if (seen.has(key)) continue;
     seen.add(key); projected.push([source, target]);
@@ -563,7 +577,7 @@ function updateCaoTraceDetail() {
   if (!graphData || !caoGroups.length) return;
   const key = caoPositionKey(graphData.states[current]);
   const group = caoGroups[caoGroupByState[current]], trace = caoTraceStats();
-  ui['cao-trace-detail'].textContent = `曹操 ${caoPositionLabel(key)} · 同位 ${group.members.length.toLocaleString()} · 轨迹移动 ${trace.moves} 次 · 向下 ${trace.downMoves} 次${trace.firstDown === null ? '' : ` · 首次第 ${trace.firstDown} 步`}`;
+  ui['cao-trace-detail'].textContent = `曹操${caoGroupingName()} ${caoPositionLabel(key)} · 同组 ${group.members.length.toLocaleString()} · 轨迹移动 ${trace.moves} 次 · 向下 ${trace.downMoves} 次${trace.firstDown === null ? '' : ` · 首次第 ${trace.firstDown} 步`}`;
 }
 
 function goalSinkEdgeGeometry(pairs) {
@@ -1369,7 +1383,7 @@ function updateGraphState() {
   if (graphMode === 'overview') {
     if (caoMergeEnabled) {
       ui['explored-count'].textContent = caoGroups.length.toLocaleString();
-      ui['graph-summary'].textContent = '曹操同位投影 · 当前 #' + current + ' · ' + caoGroups.length + ' 个位置组 · 红色连线表示曹操移动';
+      ui['graph-summary'].textContent = `曹操${caoGroupingName()}投影 · 当前 #${current} · ${caoGroups.length} 个组 · 红色连线表示包含曹操移动的边`;
     } else if (goalSinkEnabled) {
       ui['graph-count-label'].textContent = '目标汇聚后节点';
       ui['explored-count'].textContent = (graphData.states.length - goalSinkStateCount + 1).toLocaleString();
@@ -1682,7 +1696,7 @@ function updateGraphHover(position) {
       ? '成功逃脱 · ' + goalSinkStateCount.toLocaleString() + ' 个终局 · 点击导航到最近终局'
       : groupId == null
       ? '#' + id + ' · 起点距离 ' + graphData.states[id].distance + ' · 目标距离 ' + layoutData.coordinates[id][3] + cao
-      : '曹操 ' + caoPositionLabel(caoGroups[groupId].key) + ' · ' + caoGroups[groupId].members.length.toLocaleString() + ' 个状态 · 点击选择代表节点 #' + id;
+      : '曹操' + caoGroupingName() + ' ' + caoPositionLabel(caoGroups[groupId].key) + ' · ' + caoGroups[groupId].members.length.toLocaleString() + ' 个状态 · 点击选择代表节点 #' + id;
     const rect = renderer.domElement.getBoundingClientRect();
     ui['node-tooltip'].style.left = clientX - rect.left + 12 + 'px'; ui['node-tooltip'].style.top = clientY - rect.top + 12 + 'px';
   }

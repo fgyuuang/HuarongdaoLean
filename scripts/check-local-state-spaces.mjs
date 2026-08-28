@@ -20,6 +20,23 @@ function checkGraph(name, graph, layout) {
   ), `${name}: edge endpoint out of range`);
 }
 
+function caoPositionKey(state, mirrorInvariant) {
+  const [x, y] = state.positions[0];
+  return `${mirrorInvariant ? Math.min(x, 2 - x) : x},${y}`;
+}
+
+function checkCaoProjection(name, graph, mirrorInvariant, expectedGroupCount) {
+  const keys = graph.states.map(state => caoPositionKey(state, mirrorInvariant));
+  assert(new Set(keys).size === expectedGroupCount,
+    `${name}: unexpected Cao Cao position-group count`);
+  for (const [id, edge] of graph.edges.entries()) {
+    if (keys[edge.source] === keys[edge.target]) continue;
+    const steps = edge.steps?.length ? edge.steps : [edge];
+    assert(steps.some(step => step.piece === 0),
+      `${name}: edge #${id} changes Cao Cao group without moving Cao Cao`);
+  }
+}
+
 const shape = read('graph.json');
 const shapeLayout = read('layout.json');
 const mirror = read('graph.mirror.json');
@@ -30,6 +47,9 @@ const corridorLayout = read('layout.corridor.json');
 checkGraph('shape', shape, shapeLayout);
 checkGraph('mirror', mirror, mirrorLayout);
 checkGraph('corridor', corridor, corridorLayout);
+checkCaoProjection('shape', shape, false, 12);
+checkCaoProjection('mirror', mirror, true, 8);
+checkCaoProjection('corridor', corridor, true, 8);
 
 assert(mirror.meta.quotient?.symmetry === 'horizontal_mirror', 'mirror: quotient metadata missing');
 assert(mirror.meta.verified === true, 'mirror: Lean verification metadata missing');
@@ -86,4 +106,5 @@ console.log(`shape=${shape.states.length} states, ${shape.edges.length} directed
 console.log(`mirror=${mirror.states.length} states, ${mirror.edges.length} directed edges`);
 console.log(`corridor=${corridor.states.length} anchors, ${corridor.edges.length} directed macro edges`);
 console.log(`corridor shortest=${corridor.meta.primitiveShortestGoalDistance} primitive steps / ${corridor.meta.operationShortestGoalDistance} macro operations`);
+console.log('Cao Cao groups=12 exact / 8 mirror / 8 corridor; changing edges contain a Cao Cao step');
 console.log('local state-space files and expansion paths valid: true');

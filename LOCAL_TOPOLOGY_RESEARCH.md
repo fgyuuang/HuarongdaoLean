@@ -6,9 +6,14 @@
 
 项目刻意区分三种结论：
 
-- Lean 内核定理：合法动作、动作交换、Link 边、孤立动作、局部维数与镜像键。
+- Lean 内核定理：通用 `StateSpace.Task` 上的动作交换、Link 边和成对交换，以及经典具体状态上的合法动作、孤立动作、局部维数与镜像键。
 - 有限图自动检查：半径 2 子图、同调、局部切分和全图绕行反例。
 - Three.js 展示：节点位置、颜色与三维排布，不属于证明数据。
+
+`Huarongdao/LocalTopology.lean` 同时保留旧的可执行 raw-state API，并通过
+`actionsCommuteAt_iff_concrete`、`linkEdge_iff_concrete` 和
+`pairwiseCommuteAt_iff_concrete` 连接到新版 `ClassicStateSpaceKernel.concrete`。
+因此本案例不是独立于统一基座的旁路定义。
 
 ## 2. Lean 已验证的动作 Link
 

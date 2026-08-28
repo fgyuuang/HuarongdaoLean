@@ -1,6 +1,71 @@
-import Huarongdao.Transition
+import Huarongdao.StateSpaceKernel
 
 namespace Huarongdao
+
+namespace StateSpace
+namespace Task
+
+universe u v
+
+variable {State : Type u} {Action : Type v}
+
+/-- Two labelled transitions commute at a state when both execution orders
+    form a proof-carrying square with the same opposite vertex. -/
+def ActionsCommuteAt (task : Task State Action)
+    (source : State) (first second : Action) : Prop :=
+  ∃ afterFirst afterSecond target,
+    task.step source first afterFirst ∧
+    task.step source second afterSecond ∧
+    task.step afterFirst second target ∧
+    task.step afterSecond first target
+
+/-- A nondegenerate commuting square in an arbitrary state-space task. -/
+def SquareAt (task : Task State Action)
+    (source : State) (first second : Action) : Prop :=
+  first ≠ second ∧ task.ActionsCommuteAt source first second
+
+/-- The action link at a state: vertices are actions and edges are squares. -/
+def LinkEdge (task : Task State Action)
+    (source : State) (first second : Action) : Prop :=
+  task.SquareAt source first second
+
+/-- A finite family of pairwise commuting action directions at one state. -/
+def PairwiseCommuteAt (task : Task State Action)
+    (source : State) (actions : List Action) : Prop :=
+  actions.Pairwise fun first second =>
+    task.LinkEdge source first second
+
+theorem actionsCommuteAt_symm
+    {task : Task State Action} {source : State} {first second : Action} :
+    task.ActionsCommuteAt source first second →
+      task.ActionsCommuteAt source second first := by
+  rintro ⟨afterFirst, afterSecond, target,
+    firstStep, secondStep, firstThenSecond, secondThenFirst⟩
+  exact
+    ⟨afterSecond, afterFirst, target,
+      secondStep, firstStep, secondThenFirst, firstThenSecond⟩
+
+theorem squareAt_symm
+    {task : Task State Action} {source : State} {first second : Action} :
+    task.SquareAt source first second →
+      task.SquareAt source second first := by
+  rintro ⟨distinct, commutes⟩
+  exact ⟨Ne.symm distinct, actionsCommuteAt_symm commutes⟩
+
+theorem linkEdge_symm
+    {task : Task State Action} {source : State} {first second : Action} :
+    task.LinkEdge source first second →
+      task.LinkEdge source second first :=
+  squareAt_symm
+
+end Task
+end StateSpace
+
+/-
+The remaining definitions are the executable compatibility API on raw classic
+states. The bridge theorems below identify them with the maintained legal-state
+`StateSpace.Task` semantics.
+-/
 
 def tryAction (s : State) (a : Action) : Option State :=
   tryMove s a.piece a.direction
@@ -55,6 +120,70 @@ theorem actionsCommuteAt_steps {s : State} {a b : Action}
     ∃ sa sb target, Step s sa ∧ Step s sb ∧ Step sa target ∧ Step sb target := by
   rcases h with ⟨sa, sb, target, ha, hb, hab, hba⟩
   exact ⟨sa, sb, target, ⟨a, ha⟩, ⟨b, hb⟩, ⟨b, hab⟩, ⟨a, hba⟩⟩
+
+/-- The executable raw-state square is exactly the generic Task square once
+    the source state is equipped with its legality proof. -/
+theorem actionsCommuteAt_iff_concrete
+    {s : State} (validSource : ValidState s) {a b : Action} :
+    ActionsCommuteAt s a b ↔
+      StateSpace.Task.ActionsCommuteAt
+        ClassicStateSpaceKernel.concrete ⟨s, validSource⟩ a b := by
+  constructor
+  · rintro ⟨sa, sb, target, ha, hb, hab, hba⟩
+    let validAfterA : ValidClassicState :=
+      ⟨sa, tryMove_preserves_validity ha⟩
+    let validAfterB : ValidClassicState :=
+      ⟨sb, tryMove_preserves_validity hb⟩
+    let validTarget : ValidClassicState :=
+      ⟨target, tryMove_preserves_validity hab⟩
+    exact
+      ⟨validAfterA, validAfterB, validTarget,
+        ha, hb, hab, hba⟩
+  · rintro ⟨sa, sb, target, ha, hb, hab, hba⟩
+    exact ⟨sa.1, sb.1, target.1, ha, hb, hab, hba⟩
+
+theorem squareAt_iff_concrete
+    {s : State} (validSource : ValidState s) {a b : Action} :
+    SquareAt s a b ↔
+      StateSpace.Task.SquareAt
+        ClassicStateSpaceKernel.concrete ⟨s, validSource⟩ a b := by
+  simp only [SquareAt, StateSpace.Task.SquareAt]
+  exact and_congr Iff.rfl (actionsCommuteAt_iff_concrete validSource)
+
+theorem linkEdge_iff_concrete
+    {s : State} (validSource : ValidState s) {a b : Action} :
+    LinkEdge s a b ↔
+      StateSpace.Task.LinkEdge
+        ClassicStateSpaceKernel.concrete ⟨s, validSource⟩ a b := by
+  exact squareAt_iff_concrete validSource
+
+theorem pairwiseCommuteAt_iff_concrete
+    {s : State} (validSource : ValidState s) (actions : List Action) :
+    PairwiseCommuteAt s actions ↔
+      StateSpace.Task.PairwiseCommuteAt
+        ClassicStateSpaceKernel.concrete ⟨s, validSource⟩ actions := by
+  induction actions with
+  | nil =>
+      simp [PairwiseCommuteAt, StateSpace.Task.PairwiseCommuteAt]
+  | cons head tail inductionHypothesis =>
+      simp only [
+        PairwiseCommuteAt,
+        StateSpace.Task.PairwiseCommuteAt,
+        List.pairwise_cons
+      ]
+      constructor
+      · rintro ⟨headCommutes, tailCommutes⟩
+        exact
+          ⟨fun action member =>
+              (linkEdge_iff_concrete validSource).mp
+                (headCommutes action member),
+            inductionHypothesis.mp tailCommutes⟩
+      · rintro ⟨headCommutes, tailCommutes⟩
+        exact
+          ⟨fun action member =>
+              (linkEdge_iff_concrete validSource).mpr
+                (headCommutes action member),
+            inductionHypothesis.mpr tailCommutes⟩
 
 theorem checkActionsCommuteAt_sound {s : State} {a b : Action}
     (h : checkActionsCommuteAt s a b = true) : ActionsCommuteAt s a b := by

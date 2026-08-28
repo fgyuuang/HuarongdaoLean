@@ -17,6 +17,9 @@ def classicLocal1442 : State :=
     ⟨1, 0⟩, ⟨2, 3⟩, ⟨0, 4⟩, ⟨2, 2⟩, ⟨1, 4⟩
   ]⟩
 
+def classicLocal1409Valid : ValidClassicState :=
+  ⟨classicLocal1409, by rfl⟩
+
 def local1409Actions : List Action := [
   ⟨.maChao, .down⟩,
   ⟨.huangZhong, .left⟩,
@@ -73,6 +76,24 @@ theorem classicLocal1409_link_cycle :
     LinkEdge classicLocal1409 ⟨.soldier3, .up⟩ ⟨.soldier4, .right⟩ := by
   native_decide
 
+/-- The same four-cycle stated on the maintained generic Task kernel. -/
+theorem classicLocal1409_task_link_cycle :
+    StateSpace.Task.LinkEdge ClassicStateSpaceKernel.concrete
+        classicLocal1409Valid ⟨.maChao, .down⟩ ⟨.soldier2, .right⟩ ∧
+    StateSpace.Task.LinkEdge ClassicStateSpaceKernel.concrete
+        classicLocal1409Valid ⟨.maChao, .down⟩ ⟨.soldier3, .up⟩ ∧
+    StateSpace.Task.LinkEdge ClassicStateSpaceKernel.concrete
+        classicLocal1409Valid ⟨.soldier2, .right⟩ ⟨.soldier4, .right⟩ ∧
+    StateSpace.Task.LinkEdge ClassicStateSpaceKernel.concrete
+        classicLocal1409Valid ⟨.soldier3, .up⟩ ⟨.soldier4, .right⟩ := by
+  rcases classicLocal1409_link_cycle with
+    ⟨first, second, third, fourth⟩
+  exact
+    ⟨(linkEdge_iff_concrete classicLocal1409Valid.2).mp first,
+      (linkEdge_iff_concrete classicLocal1409Valid.2).mp second,
+      (linkEdge_iff_concrete classicLocal1409Valid.2).mp third,
+      (linkEdge_iff_concrete classicLocal1409Valid.2).mp fourth⟩
+
 /-- The fifth legal move is isolated from the four-cycle in the action link. -/
 theorem classicLocal1409_huangZhong_isolated :
     ¬ LinkEdge classicLocal1409 ⟨.huangZhong, .left⟩ ⟨.maChao, .down⟩ ∧
@@ -94,6 +115,28 @@ theorem classicLocal1409_cycle_triples_not_pairwise :
     ¬ PairwiseCommuteAt classicLocal1409
       [⟨.maChao, .down⟩, ⟨.soldier3, .up⟩, ⟨.soldier4, .right⟩] := by
   native_decide
+
+/-- Absence of a commuting triple, transported to the generic Task kernel. -/
+theorem classicLocal1409_task_cycle_triples_not_pairwise :
+    ¬ StateSpace.Task.PairwiseCommuteAt
+        ClassicStateSpaceKernel.concrete classicLocal1409Valid
+        [⟨.maChao, .down⟩, ⟨.soldier2, .right⟩,
+          ⟨.soldier4, .right⟩] ∧
+    ¬ StateSpace.Task.PairwiseCommuteAt
+        ClassicStateSpaceKernel.concrete classicLocal1409Valid
+        [⟨.maChao, .down⟩, ⟨.soldier3, .up⟩,
+          ⟨.soldier4, .right⟩] := by
+  rcases classicLocal1409_cycle_triples_not_pairwise with
+    ⟨firstAbsent, secondAbsent⟩
+  constructor
+  · intro taskTriple
+    exact firstAbsent <|
+      (pairwiseCommuteAt_iff_concrete classicLocal1409Valid.2 _).mpr
+        taskTriple
+  · intro taskTriple
+    exact secondAbsent <|
+      (pairwiseCommuteAt_iff_concrete classicLocal1409Valid.2 _).mpr
+        taskTriple
 
 /-- Exhaustive kernel check: no three distinct legal actions commute pairwise. -/
 theorem classicLocal1409_no_commuting_triple_checked :
