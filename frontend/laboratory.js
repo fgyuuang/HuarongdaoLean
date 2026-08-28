@@ -64,10 +64,42 @@ $('mode-lab').onclick = () => switchMode('lab');
 function loadPreset(name) {
   const preset = structuredClone(presets[name]);
   $('lab-width').value = preset.width; $('lab-height').value = preset.height; $('lab-timeout-seconds').value = name === 'classic' ? 180 : 120; pieces = preset.pieces;
+  $('lab-source-note').hidden = true;
+  $('lab-initial-type').textContent = 'ValidState spec initial';
   document.querySelectorAll('[data-lab-preset]').forEach(button => button.classList.toggle('active', button.dataset.labPreset === name));
   clearResult(); renderAll();
 }
 document.querySelectorAll('[data-lab-preset]').forEach(button => button.onclick = () => loadPreset(button.dataset.labPreset));
+
+async function loadFullSpaceComponent(componentId) {
+  const response = await fetch('./full-shape-components.json');
+  if (!response.ok) throw new Error(`全空间分量数据加载失败：HTTP ${response.status}`);
+  const data = await response.json();
+  const component = data.components?.find(item => item.id === componentId);
+  if (!component || !Array.isArray(component.positions) || component.positions.length !== 10) {
+    throw new Error(`找不到全空间分量 #${componentId}`);
+  }
+  $('lab-width').value = data.meta?.width ?? 4;
+  $('lab-height').value = data.meta?.height ?? 5;
+  $('lab-timeout-seconds').value = 180;
+  pieces = [
+    { id: 1, width: 2, height: 2, x: component.positions[0][0], y: component.positions[0][1], goalX: 1, goalY: 3 },
+    { id: 2, width: 2, height: 1, x: component.positions[1][0], y: component.positions[1][1], goalX: null, goalY: null },
+    ...component.positions.slice(2, 6).map((position, index) => ({
+      id: index + 3, width: 1, height: 2, x: position[0], y: position[1], goalX: null, goalY: null
+    })),
+    ...component.positions.slice(6, 10).map((position, index) => ({
+      id: index + 7, width: 1, height: 1, x: position[0], y: position[1], goalX: null, goalY: null
+    }))
+  ];
+  document.querySelectorAll('[data-lab-preset]').forEach(button => button.classList.remove('active'));
+  $('lab-source-note').hidden = false;
+  $('lab-source-note').innerHTML = `<strong>全空间分量 #${component.id}</strong> · 已载入其确定性代表棋盘（${component.stateCount.toLocaleString('zh-CN')} 个连续状态）。该代表可继续编辑，不自动声称属于经典初态的 25,955 状态分量。`;
+  $('lab-initial-type').textContent = `ShapeState representative · component #${component.id}`;
+  clearResult();
+  renderAll();
+  setStatus('idle', `已接入全空间分量 #${component.id}`);
+}
 document.querySelectorAll('[data-lab-strategy]').forEach(button => button.onclick = () => {
   searchStrategy = button.dataset.labStrategy; document.querySelectorAll('[data-lab-strategy]').forEach(item => item.classList.toggle('active', item === button));
   $('lab-solve').textContent = searchStrategy === 'astar' ? 'Lean A* 求解' : 'Lean BFS 建图';
@@ -667,7 +699,7 @@ $('lab-play-board').addEventListener('keydown',event=>{const direction={ArrowUp:
 
 loadPreset('tiny');
 const laboratoryQuery = new URLSearchParams(location.search);
-if (laboratoryQuery.get('preset') && presets[laboratoryQuery.get('preset')]) loadPreset(laboratoryQuery.get('preset'));
+if (!laboratoryQuery.get('fullSpaceComponent') && laboratoryQuery.get('preset') && presets[laboratoryQuery.get('preset')]) loadPreset(laboratoryQuery.get('preset'));
 if (laboratoryQuery.get('mode') === 'lab') switchMode('lab');
 if (laboratoryQuery.get('strategy') === 'bfs') document.querySelector('[data-lab-strategy="bfs"]').click();
 if (laboratoryQuery.get('shortTimeout') === '1') $('lab-timeout-seconds').value='1';
@@ -692,4 +724,11 @@ if (laboratoryQuery.get('autoEdit') === '1') requestAnimationFrame(() => {
     }
   }
 });
-if (laboratoryQuery.get('autoSolve') === '1') callSolver(false);
+if (laboratoryQuery.get('autoSolve') === '1' && !laboratoryQuery.get('fullSpaceComponent')) callSolver(false);
+if (/^\d+$/.test(laboratoryQuery.get('fullSpaceComponent') || '')) {
+  switchMode('lab');
+  loadFullSpaceComponent(Number(laboratoryQuery.get('fullSpaceComponent'))).catch(error => {
+    setStatus('invalid', error.message);
+    console.error(error);
+  });
+}

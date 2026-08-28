@@ -1,5 +1,7 @@
 # 基于 Lean 4 的有限滑块谜题实验室
 
+本项目的正式研究名称是**基于 Lean 4 的华容道有限状态空间与离散几何形式化研究**。核心问题是：华容道的合法滑动、可达性、对称商、最短解和关键门区能否被 Lean 4 严格证明。
+
 > 新队友安装、旧版本迁移和 Git 协作流程见 [`TEAM_START.md`](TEAM_START.md)。
 
 本项目从经典“横刀立马”华容道出发，将合法局面与一步移动定义为有限状态转移系统，并进一步抽象为支持任意有限矩形棋盘、编号矩形木块、给定初态和位置目标的通用滑块谜题形式系统。经典模式保留完整 25,955 节点商图；关卡实验室通过 HTTP 调用 Lean 通用 BFS 或 A*，并独立重放返回路径以构造解的存在性证明。
@@ -21,6 +23,8 @@ Lean 定理
 ```
 
 当前通用 A* 只保证候选动作能由 `checkSolution` 重放为合法解，不保证最短；通用 BFS 的 `complete` 是搜索器运行标记，只有进一步通过 `checkClosedGraph` 与 `checkNoGoal` 才能形成内核不可达证书；经典页面生成的是基于已导出边的证明轨迹/代码骨架，不是在浏览器中重新编译 Lean。
+
+当前 Lean 形式化成果、证明链、证据层级和 `Fintype.card ContinuousClass = 898` 的最终证明目标，集中见 [`docs/FORMALIZATION_OVERVIEW.md`](docs/FORMALIZATION_OVERVIEW.md)。
 
 ## 已完成内容
 
@@ -50,6 +54,13 @@ Lean 定理
 - `SymmetryShortestPath` 将定长路径、定长解和最短解长度提升为任务级接口，并证明 `concrete → shape → mirror` 两层双模拟商完整保持原子步最短距离
 - `StateSpaceAnalysis` 将完整状态/边枚举、BFS 距离数组、割集与 Mathlib 桥统一参数化于 `StateSpace.Task`；各层通过 `Task.Hom` 和双模拟商连接，并证明商距离等于某个投影纤维代表的细层距离
 - `StateSpaceBfs` 提供单一的表示多态 BFS 引擎；`concretePresentation`、`shapePresentation`、`mirrorPresentation` 只替换语义投影与规范键，共用相同的队列、边表和距离数组生成过程
+- `StateSpaceConnectivity` 证明可逆任务上的 `Reachable` 是合法移动生成的最小等价关系，定义可达分支商与一步不变量，并给出它与 Mathlib `SimpleGraph.ConnectedComponent` 的典范等价
+
+可达性、组合连续性、对称商与可达商的严格区别，以及“关公必须让路”应如何写成割集定理，见 [`docs/REACHABILITY_AND_CONTINUITY.md`](docs/REACHABILITY_AND_CONTINUITY.md)。
+
+经典形状全集的构造枚举、`65,880` 个合法同形布局、`898` 个 DFS 分量摘要、Klein 四元群下 `230` 个分量轨道，以及当前证书尚缺的生成器完备性桥，见 [`docs/FULL_SHAPE_SPACE.md`](docs/FULL_SHAPE_SPACE.md)。本地启动后可从顶部“全空间”进入 [`frontend/full-space.html`](frontend/full-space.html)：一个节点代表一个连续分量，左右/上下/旋转连线只表示离散图同构，不表示合法滑动。全空间计算与重证书被隔离在 `ClassicFullSpace` / `ClassicFullSpaceCertificate`，不拖入默认构建。
+
+全空间节点现在可以直接成为关卡实验室的初态来源。点击节点会显示该分量的确定性代表棋盘；点击“接入当前任务”后，页面通过 `?mode=lab&fullSpaceComponent=<id>` 载入经典 `4×5` 形状组和曹操目标 `(1,3)`，可继续验证、A* 求解或 BFS 枚举。分量代表是全空间枚举的规范初态，不等同于传统“横刀立马”初态；分量 `#15` 才与传统初态处于同一连续等价类。
 
 交换方形在 Lean 中由 `ActionsCommuteAt` / `SquareAt` 定义：从同一状态执行两个不同动作时，两种执行顺序到达同一状态。`checkActionsCommuteAt_sound` 把可执行检查器的成功结果连接到这个命题，`actionsCommuteAt_steps` 则给出方形四条边对应的 `Step` 见证。当前 JavaScript 模块用于离线计算和筛选候选局部子图，不介入主状态图的可视化。
 
@@ -146,6 +157,8 @@ structure StateGraph where
 ```
 
 `127.0.0.1` 是只指向本机的回环地址，不是云端渲染服务。页面、求解器、布局 Worker、`3d-force-graph` 运行时和图数据都来自项目目录；断开互联网后，只要依赖已经安装且项目已构建，关卡实验室仍可生成和显示状态图。经典模式的 `layout.json` 是构建前已经持久化的参考坐标；自定义关卡则在 Lean 返回图以后，由本地浏览器 Worker 计算坐标并保存在当前页面内存中。
+
+全拼法总览同样完全在本地运行。`FullSpaceMain.lean` 将 65,880 个合法拼法的 DFS 摘要和分量对称像导出到 `frontend/full-shape-components.json`；`full-space.js` 先把 898 个连续分量按左右镜像、上下镜像和 180° 旋转归为 230 个 Klein 轨道，再用确定性的群槽位和螺旋轨道中心计算坐标。这个页面不运行随机力导向，刷新后坐标保持一致。
 
 经典模式提供三个彼此独立、可相互恢复的状态空间：
 
@@ -327,6 +340,14 @@ npm run serve
 - `Huarongdao/SymmetryShortestPath.lean`：以等形/镜像对称商为基准的定长可达与最短路径等价；`mirror_shortestSolutionLength_116` 直接在镜像商上给出经典关卡最短距离
 - `Huarongdao/StateSpaceAnalysis.lean`：任务多态的完整有限状态空间、BFS 距离证书、层间索引投影、割集/桥接口，以及经典 `concrete → shape → mirror` 商塔
 - `Huarongdao/StateSpaceBfs.lean`：可执行表示与语义任务分离的通用 BFS；同一引擎可枚举 concrete、shape、mirror 层，并保留具体动作作为路径提升和前端交互载荷
+- `Huarongdao/StateSpaceConnectivity.lean`：可逆任务上的可达等价关系、可达分支商、一步不变量及 Mathlib 连通分支等价
+- `Huarongdao/ClassicFullSpace.lean`：经典全拼法候选枚举、紧凑索引、单次 DFS 分量摘要与数据层
+- `Huarongdao/ClassicFullSpaceCertificate.lean`：隔离运行的 65,880 状态、898 摘要与闭包原生证书
+- `Huarongdao/ClassicFullSpaceSoundness.lean`：DFS 分割的语义 soundness、索引 checker 和连续等价类基数桥
+- `Huarongdao/ClassicFullSpaceSoundness.lean`：DFS 父边、闭包 checker 到语义可达分类的 soundness 桥
+- `Huarongdao/ClassicComponentSymmetry.lean`：水平/垂直反射对合法移动、ShapeState、连续分量和二分图着色的形式化
+- `Huarongdao/ClassicComponentSymmetryCertificate.lean`：459 个水平轨道、固定分量和两个最大分量交换的隔离原生证书
+- `Huarongdao/GraphTopology.lean`：Mathlib 二分图、交换方形胞腔、基本环类、桥与必经门 checker
 - `Huarongdao/Search.lean`：BFS、图 checker 与商图下界证书
 - `Huarongdao/ClassicCertificate.lean`：经典有限商图的 116 下界、玩家解最短性及统一 `StateSpace.Task` 接口
 - `Huarongdao/Minimality.lean`：势函数最短性定理
@@ -352,6 +373,9 @@ npm run serve
 - `scripts/check-layout.mjs`：30、660 和 1,620 节点图的有限性、确定性、镜像误差与大图近场分箱回归
 - `CertMain.lean`：经典完整图证书执行检查
 - `ExportMain.lean`：BFS 枚举与 JSON 导出
+- `FullSpaceMain.lean`：导出 898 个确定性分量代表及完整性元数据
+- `frontend/full-space.html`、`frontend/full-space.js`：898 个连续分量和 230 个 Klein 轨道的确定性三维总览
+- `frontend/full-shape-components.json`：Lean 导出的分量大小、代表棋盘和三种离散对称像
 - `frontend/app.js`：棋盘、参考全览、`3d-force-graph` 与局部探索交互
 - `frontend/vendor/`：项目本地固定的 Three.js、OrbitControls 和 `3d-force-graph` 浏览器运行时
 - `frontend/graph.json`：由 Lean 生成的状态和合法边，不手工维护

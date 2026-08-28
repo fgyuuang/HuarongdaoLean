@@ -25,3 +25,15 @@ root = "CertMain"
 [[lean_exe]]
 name = "solve-puzzle"
 root = "GenericMain"
+
+[[lean_exe]]
+name = "export-full-space"
+root = "FullSpaceMain"
+
+[[lean_exe]]
+name = "report-cao-guan"
+root = "CaoGuanReportMain"
+
+[[lean_exe]]
+name = "check-guan-yu-yield"
+root = "GuanYuYieldMain"

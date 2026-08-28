@@ -1,4 +1,5 @@
 import Huarongdao.LocalTopology
+import Huarongdao.GraphTopology
 import Huarongdao.MirrorQuotient
 import Std.Tactic
 
@@ -93,6 +94,27 @@ theorem classicLocal1409_task_link_cycle :
       (linkEdge_iff_concrete classicLocal1409Valid.2).mp second,
       (linkEdge_iff_concrete classicLocal1409Valid.2).mp third,
       (linkEdge_iff_concrete classicLocal1409Valid.2).mp fourth⟩
+
+/-- One verified commuting square gives a semantic four-step closed walk. -/
+theorem classicLocal1409_has_square_boundary :
+    ∃ boundary :
+        StateSpace.Task.ClosedWalk
+          ClassicStateSpaceKernel.concrete classicLocal1409Valid,
+      boundary.length = 4 := by
+  rcases classicLocal1409_task_link_cycle with
+    ⟨firstSquare, _secondSquare, _thirdSquare, _fourthSquare⟩
+  exact
+    StateSpace.Task.exists_square_boundary
+      ClassicStateSpaceKernel.concreteReversible firstSquare.2
+
+/-- The verified local sample supports a genuine two-dimensional cube cell. -/
+theorem classicLocal1409_cubical_dimension_at_least_two :
+    StateSpace.Task.SupportsCubeDimension
+      ClassicStateSpaceKernel.concrete classicLocal1409Valid 2 := by
+  rcases classicLocal1409_task_link_cycle with
+    ⟨firstSquare, _secondSquare, _thirdSquare, _fourthSquare⟩
+  exact
+    StateSpace.Task.supportsCubeDimension_two_of_commutes firstSquare.2
 
 /-- The fifth legal move is isolated from the four-cycle in the action link. -/
 theorem classicLocal1409_huangZhong_isolated :

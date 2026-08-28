@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>经典华容道全空间</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="full-space.css?v=full-space-1">
+</head>
+<body>
+  <header class="full-topbar">
+    <a class="brand" href="./" aria-label="返回经典华容道">
+      <span class="seal">全</span>
+      <span><strong>经典华容道全空间</strong><small>Continuous components and discrete symmetries</small></span>
+    </a>
+    <div class="headline-metrics" aria-label="全空间统计">
+      <span><b id="state-count">--</b> 布局</span>
+      <span><b id="component-count">--</b> 连续岛</span>
+      <span><b id="orbit-count">--</b> 对称轨道</span>
+    </div>
+    <div class="top-actions">
+      <label class="search-box">
+        <span aria-hidden="true">⌕</span>
+        <input id="component-search" type="search" inputmode="numeric" placeholder="分量编号或代表键" aria-label="查找分量编号或代表键">
+      </label>
+      <button id="search-submit" class="icon-button" title="查找分量" aria-label="查找分量">↵</button>
+      <button id="fit-view" class="icon-button" title="适配全空间" aria-label="适配全空间">⌗</button>
+      <a class="return-link" href="./">返回任务图</a>
+    </div>
+  </header>
+
+  <main class="full-workspace">
+    <section id="full-scene" class="scene" aria-label="898 个连续分量的三维对称总览">
+      <canvas id="full-space-canvas" tabindex="0"></canvas>
+      <div id="loading" class="loading"><span></span><strong>载入全空间证书数据</strong></div>
+
+      <aside class="space-summary">
+        <span class="eyebrow">ALL LEGAL SHAPE PLACEMENTS</span>
+        <h1>898 个连续世界</h1>
+        <p>节点是合法滑动的连通分量。彩色连线表示棋盘反射或旋转给出的离散同构，不是合法移动。</p>
+        <div class="summary-grid">
+          <div><span>合法布局</span><b id="summary-states">--</b></div>
+          <div><span>无向滑动边</span><b id="summary-edges">--</b></div>
+          <div><span>最大分量</span><b>25,955 × 2</b></div>
+          <div><span>Klein 轨道</span><b id="summary-orbits">--</b></div>
+        </div>
+      </aside>
+
+      <div class="symmetry-controls" role="group" aria-label="对称连线">
+        <label><input id="show-horizontal" type="checkbox" checked><i class="horizontal"></i><span>左右镜像</span></label>
+        <label><input id="show-vertical" type="checkbox" checked><i class="vertical"></i><span>上下镜像</span></label>
+        <label><input id="show-rotation" type="checkbox"><i class="rotation"></i><span>180° 旋转</span></label>
+      </div>
+
+      <div class="scene-legend" aria-label="节点图例">
+        <span><i class="classic"></i>传统初态分量</span>
+        <span><i class="vertical-classic"></i>上下翻转分量</span>
+        <span><i class="ordinary"></i>其他连续分量</span>
+        <span>球体大小 ∝ log(状态数)</span>
+      </div>
+
+      <div id="hover-tip" class="hover-tip"></div>
+    </section>
+
+    <aside id="component-panel" class="component-panel">
+      <header>
+        <div><span class="eyebrow">CONTINUOUS COMPONENT</span><h2 id="component-title">分量 #15</h2></div>
+        <span id="component-kind" class="component-kind classic">传统初态</span>
+      </header>
+      <div id="representative-board" class="representative-board" aria-label="分量确定性代表棋盘"></div>
+      <dl class="component-stats">
+        <div><dt>状态数</dt><dd id="component-states">--</dd></div>
+        <div><dt>无向边</dt><dd id="component-edges">--</dd></div>
+        <div><dt>Klein 轨道</dt><dd id="component-orbit">--</dd></div>
+        <div><dt>代表键</dt><dd id="component-key">--</dd></div>
+      </dl>
+      <section class="symmetry-map">
+        <h3>离散对称像</h3>
+        <button data-symmetry="horizontal"><i class="horizontal"></i><span>左右镜像</span><b id="horizontal-id">--</b></button>
+        <button data-symmetry="vertical"><i class="vertical"></i><span>上下镜像</span><b id="vertical-id">--</b></button>
+        <button data-symmetry="rotation"><i class="rotation"></i><span>180° 旋转</span><b id="rotation-id">--</b></button>
+      </section>
+      <div class="component-actions">
+        <button id="use-component" class="primary-action" type="button">接入当前任务</button>
+        <span id="component-action-note">将该分量的确定性代表布局载入关卡实验室</span>
+      </div>
+      <footer>
+        <span id="fixed-summary">无对称固定</span>
+        <code>ContinuousEquivalent</code>
+      </footer>
+    </aside>
+
+    <footer class="space-footer">
+      <span id="space-status">等待全空间数据</span>
+      <strong>合法滑动边只存在于每个节点所代表的岛内部</strong>
+    </footer>
+  </main>
+
+  <script type="module" src="full-space.js?v=full-space-1"></script>
+</body>
+</html>
