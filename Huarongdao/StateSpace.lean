@@ -165,6 +165,24 @@ structure Solution (task : Task State Action) where
   walk : task.Walk task.initial target
   solved : task.goal target
 
+namespace Solution
+
+variable {task : Task State Action}
+
+/-- The action word carried by a task-level solution. -/
+def actions (solution : task.Solution) : List Action :=
+  solution.walk.actions
+
+/-- The number of primitive task transitions in a solution. -/
+def length (solution : task.Solution) : Nat :=
+  solution.walk.length
+
+/-- A task-level solution is minimal when no solution uses fewer transitions. -/
+def Minimal (solution : task.Solution) : Prop :=
+  ∀ other : task.Solution, solution.length ≤ other.length
+
+end Solution
+
 /-- Every walk from `source` to `target` meets the selected vertex region. -/
 def VertexSeparator (task : Task State Action)
     (cut : State → Prop) (source target : State) : Prop :=
@@ -639,6 +657,120 @@ def pathOfClassicWalk :
   | nil => rfl
   | cons action first tail ih =>
       simp [classicWalkOfPath, pathOfClassicWalk, ih]
+
+@[simp] theorem classicWalkOfPath_actions (path : Path source target) :
+    (classicWalkOfPath path).actions = path.actions := by
+  induction path with
+  | nil => rfl
+  | cons action first tail ih =>
+      simp [classicWalkOfPath, Task.Walk.actions, Path.actions, ih]
+
+@[simp] theorem classicWalkOfPath_length (path : Path source target) :
+    (classicWalkOfPath path).length = path.length := by
+  induction path with
+  | nil => rfl
+  | cons action first tail ih =>
+      simp [classicWalkOfPath, Task.Walk.length, Path.length, ih]
+
+@[simp] theorem pathOfClassicWalk_actions
+    (walk : classicTask.Walk source target) :
+    (pathOfClassicWalk walk).actions = walk.actions := by
+  rw [← classicWalkOfPath_actions (pathOfClassicWalk walk)]
+  simp
+
+@[simp] theorem pathOfClassicWalk_length
+    (walk : classicTask.Walk source target) :
+    (pathOfClassicWalk walk).length = walk.length := by
+  rw [← classicWalkOfPath_length (pathOfClassicWalk walk)]
+  simp
+
+/-- Legacy classic reachability embeds into the canonical task reachability. -/
+theorem classicTask_reachable_of_reachable
+    (reachable : Huarongdao.Reachable source target) :
+    classicTask.Reachable source target := by
+  induction reachable with
+  | refl state => exact ⟨.nil state⟩
+  | tail step _ ih =>
+      rcases step with ⟨action, executed⟩
+      rcases ih with ⟨tail⟩
+      exact ⟨.cons action executed tail⟩
+
+/-- Task reachability maps back to the compatibility reachability predicate. -/
+theorem reachable_of_classicTask_reachable
+    (reachable : classicTask.Reachable source target) :
+    Huarongdao.Reachable source target := by
+  rcases reachable with ⟨walk⟩
+  exact (pathOfClassicWalk walk).toReachable
+
+theorem classicTask_reachable_iff :
+    classicTask.Reachable source target ↔
+      Huarongdao.Reachable source target :=
+  ⟨reachable_of_classicTask_reachable, classicTask_reachable_of_reachable⟩
+
+/-- Convert the compatibility solution object to the canonical task solution. -/
+def classicTaskSolutionOfSolution
+    (solution : Huarongdao.Solution classic) :
+    classicTask.Solution where
+  target := solution.target
+  walk := classicWalkOfPath solution.path
+  solved := solution.solved
+
+/-- Recover the compatibility solution object from the canonical task solution. -/
+def solutionOfClassicTaskSolution
+    (solution : classicTask.Solution) :
+    Huarongdao.Solution classic where
+  target := solution.target
+  path := pathOfClassicWalk solution.walk
+  solved := solution.solved
+
+@[simp] theorem solutionOfClassicTaskSolution_classicTaskSolutionOfSolution
+    (solution : Huarongdao.Solution classic) :
+    solutionOfClassicTaskSolution (classicTaskSolutionOfSolution solution) =
+      solution := by
+  cases solution with
+  | mk target path solved =>
+      rw [Huarongdao.Solution.mk.injEq]
+      exact ⟨rfl, heq_of_eq (pathOfClassicWalk_classicWalkOfPath path)⟩
+
+@[simp] theorem classicTaskSolutionOfSolution_solutionOfClassicTaskSolution
+    (solution : classicTask.Solution) :
+    classicTaskSolutionOfSolution (solutionOfClassicTaskSolution solution) =
+      solution := by
+  cases solution with
+  | mk target walk solved =>
+      rw [Task.Solution.mk.injEq]
+      exact ⟨rfl, heq_of_eq (classicWalkOfPath_pathOfClassicWalk walk)⟩
+
+@[simp] theorem classicTaskSolutionOfSolution_actions
+    (solution : Huarongdao.Solution classic) :
+    (classicTaskSolutionOfSolution solution).actions = solution.actions :=
+  classicWalkOfPath_actions solution.path
+
+@[simp] theorem classicTaskSolutionOfSolution_length
+    (solution : Huarongdao.Solution classic) :
+    (classicTaskSolutionOfSolution solution).length = solution.length :=
+  classicWalkOfPath_length solution.path
+
+@[simp] theorem solutionOfClassicTaskSolution_actions
+    (solution : classicTask.Solution) :
+    (solutionOfClassicTaskSolution solution).actions = solution.actions :=
+  pathOfClassicWalk_actions solution.walk
+
+@[simp] theorem solutionOfClassicTaskSolution_length
+    (solution : classicTask.Solution) :
+    (solutionOfClassicTaskSolution solution).length = solution.length :=
+  pathOfClassicWalk_length solution.walk
+
+theorem classicTaskSolution_minimal_iff
+    (solution : Huarongdao.Solution classic) :
+    (classicTaskSolutionOfSolution solution).Minimal ↔ solution.Minimal := by
+  constructor
+  · intro minimal other
+    have bound := minimal (classicTaskSolutionOfSolution other)
+    simpa using bound
+  · intro minimal other
+    have bound := minimal (solutionOfClassicTaskSolution other)
+    simpa using bound
 
 end StateSpace
 

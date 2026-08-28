@@ -4,6 +4,26 @@ function endpointKey(value) {
   return typeof value === 'object' && value !== null ? value.id : value;
 }
 
+function asNodeRecord(state, index, distance, positions) {
+  if (state && typeof state === 'object' && !Array.isArray(state)) {
+    return {
+      ...state,
+      id: state.id ?? index,
+      distance: Number.isFinite(state.distance) ? state.distance : distance,
+      positions: normalizePositions(state.positions ?? positions)
+    };
+  }
+  const id = typeof state === 'string' || typeof state === 'number'
+    ? state
+    : index;
+  return {
+    id,
+    state,
+    distance,
+    positions: normalizePositions(positions)
+  };
+}
+
 function nodeId(node, index) {
   return node.id ?? index;
 }
@@ -18,6 +38,7 @@ function rootDistances(startIndex, outgoing, incoming) {
   const distances = new Int32Array(outgoing.length);
   distances.fill(-1);
   if (!outgoing.length) return distances;
+  if (startIndex < 0 || startIndex >= outgoing.length) return distances;
   const queue = new Int32Array(outgoing.length);
   let head = 0;
   let tail = 1;
@@ -37,7 +58,7 @@ function rootDistances(startIndex, outgoing, incoming) {
 
 export function buildVisualStateSpace(input, layoutResult) {
   const sourceNodes = input.nodes || [];
-  const coordinates = layoutResult.coordinates;
+  const coordinates = flattenCoordinates(layoutResult.coordinates);
   if (!coordinates || coordinates.length !== sourceNodes.length * 3) {
     throw new Error('layout coordinate count does not match state-space nodes');
   }
@@ -77,7 +98,11 @@ export function buildVisualStateSpace(input, layoutResult) {
     sourceNodes.length,
     input.startId ?? nodeId(sourceNodes[0] || {}, 0)
   );
-  const distances = rootDistances(Math.max(0, startIndex), outgoing, incoming);
+  if (sourceNodes.length && startIndex < 0) {
+    throw new Error(`unknown state-space start id: ${String(input.startId)}`);
+  }
+  const safeStartIndex = sourceNodes.length ? startIndex : 0;
+  const distances = rootDistances(safeStartIndex, outgoing, incoming);
   const nodes = sourceNodes.map((node, index) => {
     const x = coordinates[index * 3];
     const y = coordinates[index * 3 + 1];
@@ -87,7 +112,7 @@ export function buildVisualStateSpace(input, layoutResult) {
       id: nodeId(node, index),
       index,
       distance: Number.isFinite(node.distance) ? node.distance :
-        Math.max(0, distances[index]),
+        distances[index],
       x,
       y,
       z,
@@ -128,8 +153,8 @@ export function buildVisualStateSpace(input, layoutResult) {
   }
 
   return {
-    startId: nodes[Math.max(0, startIndex)]?.id,
-    startIndex: Math.max(0, startIndex),
+    startId: nodes[safeStartIndex]?.id,
+    startIndex: safeStartIndex,
     nodes,
     edges,
     links: edges,
@@ -143,6 +168,146 @@ export function buildVisualStateSpace(input, layoutResult) {
 
 export function computeVisualStateSpace(input, progress = () => {}) {
   return buildVisualStateSpace(input, computeStructuralLayout(input, progress));
+}
+
+function normalizePositions(positions) {
+  if (!Array.isArray(positions)) return positions;
+  return positions.map(position => Array.isArray(position)
+    ? { x: position[0], y: position[1] }
+    : position);
+}
+
+function flattenCoordinates(coordinates) {
+  if (coordinates == null) return coordinates;
+  if (ArrayBuffer.isView(coordinates)) return coordinates;
+  if (coordinates instanceof ArrayBuffer) return new Float32Array(coordinates);
+  if (!Array.isArray(coordinates)) return coordinates;
+  if (!coordinates.length || !Array.isArray(coordinates[0])) return coordinates;
+  const flat = new Float32Array(coordinates.length * 3);
+  coordinates.forEach((position, index) => {
+    flat[index * 3] = Number(position[0] ?? position.x ?? 0);
+    flat[index * 3 + 1] = Number(position[1] ?? position.y ?? 0);
+    flat[index * 3 + 2] = Number(position[2] ?? position.z ?? 0);
+  });
+  return flat;
+}
+
+export function stateGraphToLayoutInput(graph, options = {}) {
+  if (!graph || typeof graph !== 'object') {
+    throw new TypeError('state graph must be an object');
+  }
+  const distances = graph.distance || graph.distances || [];
+  const states = Array.isArray(graph.states) ? graph.states : [];
+  const nodeList = Array.isArray(graph.nodes) && (graph.nodes.length || !states.length)
+    ? graph.nodes
+    : states;
+  const sourceNodes = nodeList === graph.nodes
+    ? nodeList.map((node, index) => asNodeRecord(
+      node,
+      index,
+      distances[index],
+      node?.positions ?? node?.position
+    ))
+    : nodeList.map((state, index) => asNodeRecord(
+      state,
+      index,
+      distances[index],
+      state?.positions ?? state?.position
+    ));
+  const sourceEdges = Array.isArray(graph.edges)
+    ? graph.edges
+    : (Array.isArray(graph.links) ? graph.links : []);
+  const startId = options.startId ?? graph.startId ?? graph.initial ??
+    graph.meta?.initial ?? sourceNodes[0]?.id ?? 0;
+  return {
+    ...options,
+    board: options.board ?? graph.board,
+    shapes: options.shapes ?? graph.shapes,
+    startId,
+    nodes: sourceNodes.map((node, index) => ({
+      ...node,
+      id: node.id ?? index,
+      positions: normalizePositions(node.positions)
+    })),
+    edges: sourceEdges
+  };
+}
+
+export function computeVisualStateGraph(graph, options = {}, progress = () => {}) {
+  const input = stateGraphToLayoutInput(graph, options);
+  return computeVisualStateSpace(input, progress);
+}
+
+export function computeVisualStateGraphAsync(
+  graph,
+  options = {},
+  { workerFactory, onProgress } = {}
+) {
+  const input = stateGraphToLayoutInput(graph, options);
+  const makeWorker = workerFactory || (() => {
+    if (typeof Worker === 'undefined') {
+      throw new Error('Web Worker is unavailable; use computeVisualStateGraph synchronously');
+    }
+    return new Worker(new URL('./structural-layout-worker.js', import.meta.url), {
+      type: 'module'
+    });
+  });
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let worker;
+    const cleanup = () => {
+      if (!worker) return;
+      worker.onmessage = null;
+      worker.onerror = null;
+      worker.onmessageerror = null;
+      worker.terminate?.();
+    };
+    const fail = error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    try {
+      worker = makeWorker(input);
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    worker.onmessage = event => {
+      if (event.data?.type === 'progress') {
+        onProgress?.(event.data.detail);
+        return;
+      }
+      if (event.data?.type === 'error') {
+        fail(new Error(event.data.message || 'structural layout failed'));
+        return;
+      }
+      if (event.data?.type !== 'result') return;
+      const layout = {
+        coordinates: flattenCoordinates(event.data.coordinates),
+        meta: event.data.meta || {}
+      };
+      try {
+        const visual = buildVisualStateSpace(input, layout);
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(visual);
+      } catch (error) {
+        fail(error);
+      }
+    };
+    worker.onerror = error => {
+      fail(error instanceof Error ? error : new Error('structural layout worker failed'));
+    };
+    worker.onmessageerror = () => fail(new Error('structural layout worker message could not be decoded'));
+    try {
+      worker.postMessage(input);
+    } catch (error) {
+      fail(error);
+    }
+  });
 }
 
 export function createNodeClickHandler(visualStateSpace, onClick) {

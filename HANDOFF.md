@@ -55,9 +55,10 @@
 
 1. “步”表示单个棋子平移一格；决策骨架中的“宏操作”只是多个底层步的压缩显示。
 2. 商空间语义由 Lean 定理提供；JSON、坐标、颜色和屏幕上的节点形状是可视化数据，不是证明本身。
-3. `frontend/graph.json` 是 Lean 生成物并被 `.gitignore` 忽略；镜像商和决策骨架 JSON 是本次本地可复现可视化所需的派生数据。
+3. `frontend/graph.json` 是 Lean 生成物并被 `.gitignore` 忽略；镜像商 JSON 由 Lean 生成并认证全部带动作边，决策骨架 JSON 由 Lean 生成并认证全部不同有向端点邻接及代表动作路径，Python 只负责布局派生数据。
 4. 参考布局来自 `2swap/Klotski-Webpage`，受 GPLv3 影响，详见 `THIRD_PARTY_NOTICES.md` 和 `frontend/reference-layout.LICENSE.txt`。
 5. 当前未提交的改动应在本次提交中统一进入 `main`；不要恢复队友的动态可视化文件。
+6. corridor 的完备性契约是无标签有向端点邻接完备，不是平行动作边实例的逐条保留；元数据中的 `parentEdgeLabelPolicy` 固定为 `one_representative_per_directed_adjacency`。`CorridorExport` 当前是 Lean 内核执行的有限 `Bool` checker，尚未提供从任意导出数组到依赖类型 `CorridorSegmentation` 的反射桥接定理。
 
 ## 5. 构建、验证和运行
 
@@ -110,10 +111,11 @@ browser desktop/mobile regression    -> passed, 0 JavaScript errors
 - `Huarongdao/Relabeling.lean`、`Quotient.lean`：同形标签商与代表无关性。
 - `Huarongdao/MirrorQuotient.lean`：水平镜像商。
 - `Huarongdao/CorridorCompression.lean`：决策骨架宏边与展开定理。
+- `Huarongdao/CorridorExport.lean`：Lean 中的有限 corridor 自动分段、有向邻接覆盖和代表动作路径重放检查。
 - `Huarongdao/StateSpaceKernel.lean`、`ClassicCertificate.lean`：四层状态空间和经典 116 步证书入口。
 - `Huarongdao/Search.lean`、`CertMain.lean`：BFS 图证书与可执行检查。
 - `frontend/app.js`、`frontend/index.html`、`frontend/styles.css`：本地可视化。
-- `scripts/build_mirror_quotient.py`、`scripts/build_corridor_compression.py`：派生 JSON 生成。
+- `scripts/build_mirror_quotient.py`、`scripts/build_corridor_compression.py`：只生成镜像/决策骨架布局及摘要，不生成图边。
 - `scripts/check-local-state-spaces.mjs`：三层数据、坐标对齐和宏边展开回归。
 
 ## 7. Git 交接

@@ -103,7 +103,7 @@ npm run serve
 
 参考全览保留本地方案的“展开 / 合并 / 100%”连续投影：`layout.mirror.json` 为每个镜像类保存两个端点和商节点中点，同形商的 25,955 个代表沿这些本地预计算坐标移动到 13,011 个镜像商节点。该过程不在浏览器中重新计算布局。
 
-三层不是对同一图就地改写。页面根据分类分别读取 `graph.json / layout.json`、`graph.mirror.json / layout.mirror.json` 和 `graph.corridor.json / layout.corridor.json`。决策骨架只绘制初始、目标和分岔关键节点，二度中间状态不显示；无归并的单步边为灰色，确实压缩多个底层步骤的宏边为蓝色，宏边起止节点用金色点突出显示。蓝色宏边保存完整父节点路径、原子步骤和权重。Lean `CorridorCompression.lean` 维护对应的有向、证明携带 `CorridorMacroStep` 对象。
+三层不是对同一图就地改写。页面根据分类分别读取 `graph.json / layout.json`、`graph.mirror.json / layout.mirror.json` 和 `graph.corridor.json / layout.corridor.json`。决策骨架只绘制初始、目标和分岔关键节点，二度中间状态不显示；无归并的单步边为灰色，确实压缩多个底层步骤的宏边为蓝色，宏边起止节点用金色点突出显示。蓝色宏边保存完整父节点路径、一条代表性原子动作链和权重。Lean `CorridorCompression.lean` 维护对应的有向、证明携带 `CorridorMacroStep` 对象，`CorridorExport.lean` 在有限父图上自动识别 anchor、生成双向宏边并检查全部不同的有向端点邻接均已分段覆盖；同一端点的平行动作边由镜像层逐条认证，但不在 corridor 层重复保留。
 
 完整力导向模式不会随机冷启动。每个节点从 `layout.json` 获得参考位置 `rx,ry,rz`，每条边记录参考长度 `restLength`。默认令
 
@@ -230,6 +230,62 @@ structure PuzzleSpec where
 
 不要一开始给有限状态集合套普通点集拓扑。有限离散拓扑的开闭集理论通常平凡；视频中真正有内容的“拓扑”来自图的路径与环，以及独立移动生成的方形/立方复形。
 
+### 4.1 完整状态集的闭包证书
+
+不能把搜索器返回的 `complete = true` 直接当作定理。项目现在定义：
+
+```lean
+def StateGraph.checkClosedGraph (spec : PuzzleSpec) (graph : StateGraph) : Bool
+
+theorem StateGraph.checkClosedGraph_sound
+    (checked : graph.checkClosedGraph spec = true) :
+    ∀ state, Reachable spec spec.initial state →
+      state ∈ graph.states.toList
+```
+
+checker 重新验证两件事：
+
+1. `initial` 位于有限节点数组；
+2. 数组中任意状态的每个 `legalMoves` 后继仍位于该数组。
+
+第二项给出对一步移动的封闭性。对 `Reachable` 的路径长度归纳随后证明：从初态出发无论走多少步，都不可能离开这个有限节点集。因此该定理证明的是“没有遗漏可达状态”，而不是“BFS 程序看起来已经停止”。节点数组可以包含额外状态；若要证明它恰好等于可达集，还需反向证明数组中每个节点均可达。
+
+若同时检查节点数组中没有目标：
+
+```lean
+theorem StateGraph.no_reachable_goal_of_closed_graph
+    (closed : graph.checkClosedGraph spec = true)
+    (noGoal : graph.checkNoGoal spec = true) :
+    ¬ ∃ state, Reachable spec spec.initial state ∧
+      goalMatches spec state = true
+```
+
+就得到内核级不可达证书。
+
+### 4.2 上界、下界与最短性
+
+一条搜索路径只给出最优值的上界。例如 A* 找到长度 `L` 的合法解，只能推出“最短长度不超过 `L`”。全局最短性还需要下界：
+
+```lean
+structure LowerBoundCertificate (spec : PuzzleSpec) (bound : Nat) where
+  rank : State → Nat
+  startRank : rank spec.initial = 0
+  stepRank : tryMove spec source action.block action.direction = some target →
+    rank target ≤ rank source + 1
+  goalRank : goalMatches spec target = true → bound ≤ rank target
+```
+
+沿任意长度为 `n` 的合法路径反复使用 `stepRank`，得到终点势至多为 `n`。目标势又至少为 `bound`，因此任何解都有 `bound ≤ n`。最终合并定理为：
+
+```lean
+theorem shortest_of_verified_path_and_lower_bound
+    (verified : VerifiedPath spec actions)
+    (certificate : LowerBoundCertificate spec actions.length) :
+    IsShortestSolution spec actions
+```
+
+`VerifiedPath` 通过 `checkSolution` 给出长度相同的合法解，即上界；`LowerBoundCertificate` 给出相同数值的下界。上下界相等后，Lean 才允许声明全局最短。这种接口可以接收 A*、BFS、SAT/SMT 或外部程序产生的候选路径，而不需要信任搜索器本身。
+
 ## 5. 三种不同的商
 
 ### 5.1 同形标签商
@@ -345,7 +401,7 @@ delta(s) = center2(s,caoCao) - center2(s,guanYu)
 
 ## 8. Mathlib 能提供什么
 
-当前项目没有 Mathlib 依赖，只使用 Lean/Std。Mathlib 有对应模块，但不应直接用一般判定器替代现有线性时间枚举。
+当前项目固定依赖 Mathlib `v4.33.1`。项目仍保留自己的可执行枚举、BFS 和证书 checker；Mathlib 用于承接抽象图论、图距离、群作用、轨道、稳定子和商空间定理，不替代面向华容道数据结构优化的算法层。
 
 | 任务 | Mathlib 模块 / API |
 | --- | --- |
@@ -366,7 +422,12 @@ e ∈ G.edgeSet ∧ G.IsBridge e
 
 或从 `G.Adj u v` 出发。
 
-推荐以后新增 `MathlibAdapter.lean`，把证书检查过的节点包装为 `Fin graph.states.size` 上的 `SimpleGraph`。算法仍由当前 BFS/Tarjan 层完成，Mathlib 用于一般定理、群作用和图同构。
+当前已经实现两层 Mathlib 接口：
+
+- `Huarongdao/Generic/MathlibGraph.lean`：把带动作标签的项目状态图投影为 `SimpleGraph`，证明项目路径与 Mathlib walk 的可达性和长度对应，并接入 `SimpleGraph.dist` 的最短路下界。
+- `Huarongdao/MathlibSymmetry.lean`：为水平反射和同形棋子重标号建立 `Group`、`Fintype`、`MulAction`、轨道商与稳定子接口，并证明可执行镜像商和语义商等价。
+
+算法仍由当前 BFS/Tarjan 与证书层完成；Mathlib 接口负责把计算结果提升为可复用的一般图论和群论结论。
 
 ## 9. 最能体现 Lean 优势的问题
 
@@ -530,7 +591,7 @@ shapeGraphTask
 
 是精确双模拟商。`mirrorShapeTask_liftToConcreteWithLength` 将任意镜像商路径依次提升到同形商和具体合法状态，并保持一步长度。
 
-`CorridorCompression.lean` 不再识别新的等价状态，而是把无分岔路径打包成带权宏边。每条 `CorridorMacroStep` 保存完整底层路径，`corridorWalk_liftToConcreteWithCost` 证明任意决策骨架路径都能展开为具体路径，具体步数等于宏权重总和。因此压缩图是有证明的派生状态空间，不是修改或替换镜像商。
+`CorridorCompression.lean` 不再识别新的等价状态，而是把无分岔路径打包成带权宏边。`CorridorExport.lean` 在 Lean 中从已完成带动作边认证的镜像图计算 anchor 和最大非分岔路径，并拒绝端点越界、不可逆、路径不连续、代表步骤无法重放或父图有向端点邻接未覆盖的结果。其契约是 `parentAdjacencyIntegrity = sound_and_complete`，并通过 `parentEdgeLabelPolicy = one_representative_per_directed_adjacency` 明确平行动作边的降级处理。每条导出 `CorridorExportEdge` 保存完整的代表性底层路径，`corridorWalk_liftToConcreteWithCost` 证明形式化 corridor 宏路径可展开为具体路径，具体步数等于宏权重总和。需要区分两层：导出数组目前由 Lean 内核执行有限 `Bool` checker 验证，尚未有定理把任意通过 checker 的数组直接构造成依赖类型 `CorridorSegmentation` / `CorridorMacroStep` 证明对象。
 
 四层公开入口位于 `StateSpaceKernel.lean`：
 
@@ -573,7 +634,7 @@ ClassicStateSpaceKernel.concreteSolution_lower_bound
 
 远端的 `MirrorEquivalent s t := SameShape s t ∨ SameShape (mirrorState s) t` 只提供直接判定和局部目标/移动接口，没有形成当前项目所需的完整 `Setoid`、任意代表边提升和路径等长定理，因此没有替换 `MirrorQuotient.lean`。
 
-可视化保留远端工作提出的层次分类，但将第三层按作用显示为“决策骨架”；不合入其以当前节点为中心的动态抽象布局、浏览器轨道构造或无向路径骨架。实际节点、边和坐标均来自本地独立项目生成的镜像商/决策骨架 JSON；“展开 / 合并 / 100%”动画、Three.js/`3d-force-graph` 操作、关卡实验室和启动方式也沿用本地实现。Lean 的四层状态空间对象及其投影/提升定理保持唯一形式化语义来源。
+可视化保留远端工作提出的层次分类，但将第三层按作用显示为“决策骨架”；不合入其以当前节点为中心的动态抽象布局、浏览器轨道构造或无向路径骨架。实际节点、边和坐标均来自本地独立项目生成的镜像商/决策骨架 JSON；其中镜像商和决策骨架图由 Lean 生成并运行时检查，Python 只做坐标映射和中点处理。“展开 / 合并 / 100%”动画、Three.js/`3d-force-graph` 操作、关卡实验室和启动方式也沿用本地实现。Lean 的四层状态空间对象及其投影/提升定理保持唯一形式化语义来源。
 
 ### 11.6 通用门区证书
 

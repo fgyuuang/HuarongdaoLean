@@ -698,7 +698,12 @@ export function computeStructuralLayout(input, progress = () => {}) {
   };
 }
 
-if (typeof self !== 'undefined') {
+const isWorkerGlobal = typeof self !== 'undefined' &&
+  typeof document === 'undefined' &&
+  typeof WorkerGlobalScope !== 'undefined' &&
+  self instanceof WorkerGlobalScope;
+
+if (isWorkerGlobal) {
   self.onmessage = event => {
     try {
       const result = computeStructuralLayout(event.data, detail => {

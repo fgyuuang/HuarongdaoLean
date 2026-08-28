@@ -70,6 +70,16 @@ verified_search_implies_exists :
 verified_search_exhibits_reachable_goal :
   result.verified spec = true →
     ∃ target, Reachable spec spec.initial target ∧ goalMatches spec target = true
+
+StateGraph.checkClosedGraph_sound :
+  graph.checkClosedGraph spec = true →
+  ∀ state, Reachable spec spec.initial state →
+    state ∈ graph.states.toList
+
+shortest_of_verified_path_and_lower_bound :
+  VerifiedPath spec actions →
+  LowerBoundCertificate spec actions.length →
+  IsShortestSolution spec actions
 ```
 
 ### 通用状态图探索
@@ -111,10 +121,10 @@ structure StateGraph where
 经典模式提供三个彼此独立、可相互恢复的状态空间：
 
 - **同形商**：直接读取 Lean 导出的 `graph.json` 与参考 `layout.json`，包含 25,955 个 `ShapeState` 代表。
-- **镜像商**：读取本地脚本生成的 `graph.mirror.json` 与 `layout.mirror.json`，包含 13,011 个镜像类。保留“展开 / 合并 / 100%”滑块，使用每个镜像类的两端坐标和中点坐标连续展示 `25,955 → 13,011` 的投影。
-- **决策骨架**：读取独立的 `graph.corridor.json` 与 `layout.corridor.json`，只显示初始、目标与分岔关键节点。连续的二度中间状态不绘制，只保存在宏边的展开路径中；普通单步边为灰色，确实归并多个底层步骤的边为蓝色，宏边两端用金色点突出显示。每条宏边保存完整镜像商节点路径、原子步骤和权重，可展开回父状态空间。
+- **镜像商**：读取 Lean 生成的 `graph.mirror.json` 与脚本生成的 `layout.mirror.json`，包含 13,011 个镜像类。保留“展开 / 合并 / 100%”滑块，使用每个镜像类的两端坐标和中点坐标连续展示 `25,955 → 13,011` 的投影。
+- **决策骨架**：读取 Lean 生成并检查过的 `graph.corridor.json` 与脚本生成的 `layout.corridor.json`，只显示初始、目标与分岔关键节点。连续的二度中间状态不绘制，只保存在宏边的展开路径中；普通单步边为灰色，确实归并多个底层步骤的边为蓝色，宏边两端用金色点突出显示。每条宏边保存完整镜像商节点路径、一条可重放的原子动作代表链和权重，可展开回父状态空间；同一有向端点若有多个动作标签，corridor 只保留一个代表，镜像层仍保留并认证全部动作边。
 
-三层分类沿用协作审查中形成的结构，但将原“强制走廊”按作用命名为“决策骨架”。不采用队友的动态重布局算法；各层节点位置、镜像中点、展开动画和骨架关键节点全部使用本地项目已经生成并验收的坐标文件。
+三层分类沿用协作审查中形成的结构，但将原“强制走廊”按作用命名为“决策骨架”。镜像图的代表元和带动作边完整性由 Lean 负责；corridor 由 Lean 自动按无标签有向端点邻接分段，并为每个邻接保留一个可重放动作代表。Python 只选取既有坐标、计算镜像中点并写布局文件。各层节点位置、镜像中点、展开动画和骨架关键节点全部使用本地项目已经生成并验收的坐标文件。
 
 实验室提供三种视图：
 
@@ -135,7 +145,9 @@ GraphPath.toReachable :
   GraphPath spec graph source target → Reachable spec source target
 ```
 
-只有 **BFS 图枚举**旨在生成整个可达状态图。`graph.complete = true` 表示本次可执行 BFS 没有触发上限并耗尽队列；`graph.complete = false` 且 `graph.truncated = true` 时，界面显示“资源截断子图”，仍可探索已返回部分，但不能声称目标不可达。A* 在找到目标后停止，只返回 `solution-subgraph`，不能当作全览图。BFS 闭包完备性尚未封装为内核级队列不变量定理。
+只有 **BFS 图枚举**旨在生成整个可达状态图。`graph.complete = true` 表示本次可执行 BFS 没有触发上限并耗尽队列；`graph.complete = false` 且 `graph.truncated = true` 时，界面显示“资源截断子图”，仍可探索已返回部分，但不能声称目标不可达。A* 在找到目标后停止，只返回 `solution-subgraph`，不能当作全览图。
+
+`graph.complete` 仍只是搜索器产生的运行时标记，BFS 队列不变量本身尚未形式证明。新增的 `StateGraph.checkClosedGraph` 不信任该标记，而是重新检查：初态在节点数组中，且数组对每个节点的全部 `legalMoves` 后继封闭。`checkClosedGraph_sound` 随后由 `Reachable` 归纳证明所有可达状态都在数组中。再结合 `checkNoGoal = true`，`no_reachable_goal_of_closed_graph` 可在内核中证明不存在可达目标。
 
 当前通用 BFS 的节点是**编号敏感的精确状态**：两个尺寸相同但编号不同的木块交换位置，默认仍是两个状态。搜索器可以使用由 `shapes + goal.positions` 推导的运行时对称键减少 A* 重复搜索。经典华容道的同形标签商和水平镜像商已经具有无条件的 Lean 路径投影/提升定理；决策骨架层则证明每条带权宏路径都能等成本展开为具体合法路径。任意用户关卡仍需根据其形状与目标约束构造相应等价关系并证明代表无关性，不能直接复用经典关卡的 `S₄ × S₄` 实例。
 
@@ -165,7 +177,9 @@ A* 只改变候选动作的搜索顺序。成功结果仍必须由 `checkSolutio
 - `limit`：达到 `maxStates` 或 `maxDepth`，只能报告“结论未知”；
 - `invalid`：`wellFormed spec = false`。
 
-BFS 与 A* 返回的路径长度是可执行搜索结果。通用路径存在性、图边 checker soundness 和 GraphPath.toReachable 已由 Lean 内核证明；搜索队列的完备性/最短性尚未封装成内核证明，因此 API 明确返回 `shortest.kernelProved = false`。
+BFS 与 A* 返回的路径长度首先是可执行搜索结果。通用路径存在性、图边 checker soundness、`GraphPath.toReachable` 和独立有限节点集闭包 checker 已由 Lean 内核证明；搜索队列本身的完备性和 A* 最优性仍未封装成内核证明，因此 API 继续返回 `shortest.kernelProved = false`。
+
+通用最短性现在具有独立的证明接口。`LowerBoundCertificate spec L` 提供势函数 `rank`，证明初态势为零、每个合法动作至多把势增加一、每个目标状态的势至少为 `L`。若一条已由 `checkSolution` 重放的路径恰有 `L` 步，`shortest_of_verified_path_and_lower_bound` 证明它不长于任何其他可执行解。搜索器负责提供上界，证书负责提供下界，两者不要求信任 A* 的堆顺序。
 
 ## Lean 与前端的数据链
 
@@ -233,7 +247,7 @@ http://127.0.0.1:4173/?mode=lab
   -> 决策骨架加权压缩
 ```
 
-前两层通过 `Observation.projectionHom` 投影，并通过 `BisimulationQuotient` 从任意代表逐边提升；决策骨架层的每条宏边携带完整镜像商路径。`ClassicStateSpaceKernel.corridorWalk_liftsToConcrete` 将任意骨架路径展开为具体合法路径，并证明具体步数等于宏边权重之和。
+前两层通过 `Observation.projectionHom` 投影，并通过 `BisimulationQuotient` 从任意代表逐边提升；决策骨架层的每条宏边携带完整镜像商路径。`CorridorExport` 在 Lean 中验证父图所有不同的有向端点邻接均被恰好一次分段覆盖、路径内部节点确为非 anchor 且每个步骤可重放。镜像层的 `checkMirrorEdgesComplete` 才负责全部带动作存储边，包括同一端点的平行动作边；因此 corridor 元数据使用 `parentAdjacencyIntegrity`，并明确声明 `one_representative_per_directed_adjacency`。`ClassicStateSpaceKernel.corridorWalk_liftsToConcrete` 将形式化的 corridor 宏路径展开为具体合法路径，并证明具体步数等于宏边权重之和。当前 `CorridorExport` 的数组 checker 还没有把任意 JSON 数组反射成依赖类型的 `CorridorSegmentation` 对象；这里的“已验证”是 Lean 内核执行的有限 `Bool` 证书检查，不能表述为该桥接定理已经完成。
 
 ## 数学模型
 
@@ -276,6 +290,7 @@ npm run serve
 - `Huarongdao/MirrorQuotient.lean`：镜像合法性、同形商上的镜像双模拟及两级商到具体状态的提升
 - `Huarongdao/CorridorCompression.lean`：保留完整展开路径的加权决策骨架状态空间
 - `Huarongdao/StateSpaceKernel.lean`：经典四层状态空间的统一公开入口与端到端定理
+- `Huarongdao/MathlibSymmetry.lean`：水平反射与同形重标号的 Mathlib 群作用、轨道商、稳定子和轨道大小定理
 - `Huarongdao/Search.lean`：BFS、图 checker 与商图下界证书
 - `Huarongdao/ClassicCertificate.lean`：经典有限商图的 116 下界、玩家解最短性及统一 `StateSpace.Task` 接口
 - `Huarongdao/Minimality.lean`：势函数最短性定理
@@ -285,8 +300,11 @@ npm run serve
 - `Huarongdao/Generic/Enumeration.lean`：通用合法动作枚举精确性
 - `Huarongdao/Generic/Paths.lean`：参数化 Path、Solution 和 checker 命题
 - `Huarongdao/Generic/Transition.lean`：通用 Step、Reachable 及保持性
+- `Huarongdao/Generic/Reversibility.lean`：方向取逆、合法移动可逆、一步关系对称与无自环
 - `Huarongdao/Generic/Search.lean`：有资源上限的精确 BFS、StateGraph、GraphPath 与边 checker
 - `Huarongdao/Generic/Verification.lean`：搜索成功到可达目标及解存在的最终证明链
+- `Huarongdao/Generic/Certificates.lean`：有限状态集闭包 checker、不可达证书、势函数下界与通用最短性定理
+- `Huarongdao/Generic/MathlibGraph.lean`：项目状态图到 `SimpleGraph` 的投影、walk/可达性桥和 `SimpleGraph.dist` 最短路接口
 - `Huarongdao/Generic/Examples.lean`：非华容道 3×2 内核回归实例
 - `GenericMain.lean`：通用 Lean 求解器 JSON 输出程序
 - `frontend/laboratory.js`：关卡编辑、API、回放和证明链
@@ -302,10 +320,11 @@ npm run serve
 - `frontend/graph.json`：由 Lean 生成的状态和合法边，不手工维护
 - `frontend/layout.json`：按 Lean 状态 ID 对齐的参考三维坐标
 - `frontend/graph.mirror.json`、`frontend/layout.mirror.json`：本地镜像商数据、两端坐标与中点坐标
-- `frontend/graph.corridor.json`、`frontend/layout.corridor.json`：本地决策骨架关键节点、宏边路径与坐标
+- `frontend/graph.corridor.json`、`frontend/layout.corridor.json`：Lean 有限 checker 验证的决策骨架关键节点、代表性宏边路径与坐标
 - `scripts/import-reference-layout.mjs`：参考坐标到规范状态键的可复现映射
 - `scripts/build_mirror_quotient.py`：从同形商底图生成独立镜像商文件
-- `scripts/build_corridor_compression.py`：从镜像商生成独立走廊文件
+- `Huarongdao/CorridorExport.lean`：Lean 中的有限 corridor 自动分段、有向邻接覆盖和代表动作路径重放检查
+- `scripts/build_corridor_compression.py`：只从 Lean corridor 图映射坐标、计算中点并写布局摘要
 - `scripts/check-local-state-spaces.mjs`：三层计数、布局对齐和宏边完整展开回归
 - `scripts/analyze-state-space.py`：桥、割点和双连通块的探索性复算
 - `STATE_SPACE_RESEARCH.md`：图生成证据、Mathlib 对应关系与后续形式化路线

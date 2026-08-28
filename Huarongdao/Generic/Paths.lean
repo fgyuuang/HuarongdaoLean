@@ -2,6 +2,11 @@ import Huarongdao.Generic.Model
 
 namespace SlidingPuzzle
 
+/--
+The domain-specific compatibility path used by executable generic-puzzle
+code. `Generic.StateSpace` identifies it with the canonical
+`StateSpace.Task.Walk` semantics.
+-/
 inductive Path (spec : PuzzleSpec) : State → State → Type where
   | nil (state : State) : Path spec state state
   | cons {source next target : State} (action : Action)
@@ -46,6 +51,10 @@ noncomputable def ofRunMoves {spec : PuzzleSpec} {source target : State} {action
 
 end Path
 
+/--
+The compatibility solution object used by search and certificates. It is
+equivalent to `(stateSpaceTask spec).Solution`.
+-/
 structure Solution (spec : PuzzleSpec) where
   target : State
   path : Path spec spec.initial target

@@ -1,5 +1,9 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
+import {
+  buildVisualStateSpace,
+  stateGraphToLayoutInput
+} from './state-space-visualization.js';
 
 const $ = id => document.getElementById(id);
 const directionLabels = { up: '上', down: '下', left: '左', right: '右' };
@@ -341,6 +345,14 @@ function startStructuralLayout(){
   $('lab-graph-summary').textContent='正在构造四维结构布局 · 地标距离与镜像配对';
   const worker=new Worker(new URL('./structural-layout-worker.js',import.meta.url),{type:'module'});
   structuralLayoutWorker=worker;
+  const layoutInput=stateGraphToLayoutInput({
+    nodes:genericGraph.nodes,
+    edges:genericGraph.edges,
+    startId:genericGraph.nodes[0]?.id
+  },{
+    board:boardDimensions(),
+    shapes:pieces.map(piece=>({width:piece.width,height:piece.height}))
+  });
   worker.onmessage=event=>{
     if(request!==structuralLayoutRequest||worker!==structuralLayoutWorker)return;
     if(event.data.type==='progress'){
@@ -355,14 +367,21 @@ function startStructuralLayout(){
     }
     if(event.data.type!=='result')return;
     const coordinates=new Float32Array(event.data.coordinates);
-    if(coordinates.length!==genericGraph.nodes.length*3){
+    let visual;
+    try{
+      visual=buildVisualStateSpace(layoutInput,{coordinates,meta:event.data.meta});
+    }catch(error){
+      worker.terminate();structuralLayoutWorker=null;button.disabled=false;button.classList.remove('running');
+      $('lab-graph-summary').textContent='结构布局结果无效，保留 BFS 生长种子 · '+error.message;
+      return;
+    }
+    if(visual.nodes.length!==genericGraph.nodes.length){
       worker.terminate();structuralLayoutWorker=null;button.disabled=false;button.classList.remove('running');
       $('lab-graph-summary').textContent='结构布局坐标数量不匹配，保留 BFS 生长种子';
       return;
     }
-    graphLayout=genericGraph.nodes.map((_,index)=>new THREE.Vector3(
-      coordinates[index*3],coordinates[index*3+1],coordinates[index*3+2]));
-    structuralLayoutMeta=event.data.meta;structuralLayoutReady=true;graphExploreLayout=new Map();
+    graphLayout=visual.nodes.map(node=>new THREE.Vector3(node.x,node.y,node.z));
+    structuralLayoutMeta=visual.meta;structuralLayoutReady=true;graphExploreLayout=new Map();
     worker.terminate();structuralLayoutWorker=null;button.disabled=false;button.classList.remove('running');
     disposeLabForceGraph();prepareLabForceGraphData();
     if(graphMode==='force'){ensureLabForceGraph();refreshLabForceGraph(true);}
@@ -373,12 +392,7 @@ function startStructuralLayout(){
     structuralLayoutWorker=null;button.disabled=false;button.classList.remove('running');
     $('lab-graph-summary').textContent='结构布局 Worker 失败，保留 BFS 生长种子 · '+event.message;
   };
-  worker.postMessage({
-    board:boardDimensions(),
-    shapes:pieces.map(piece=>({width:piece.width,height:piece.height})),
-    nodes:genericGraph.nodes.map(node=>({id:node.id,distance:node.distance,positions:node.positions})),
-    edges:genericGraph.edges.map(edge=>({source:edge.source,target:edge.target}))
-  });
+  worker.postMessage(layoutInput);
 }
 function labForceEndpointId(endpoint){return Number(typeof endpoint==='object'&&endpoint!==null?endpoint.id:endpoint);}
 function labForceLinkKey(source,target){const a=labForceEndpointId(source),b=labForceEndpointId(target);return Math.min(a,b)+':'+Math.max(a,b);}

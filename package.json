@@ -4,16 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "export": "lake exe export-graph frontend/graph.json",
+    "export": "lake exe export-graph frontend/graph.json shape",
+    "export:mirror": "lake exe export-graph frontend/graph.mirror.json mirror",
     "layout": "node scripts/import-reference-layout.mjs",
     "analyze": "python scripts/analyze-state-space.py frontend/graph.json",
     "serve": "node scripts/serve.mjs",
     "check:generic": "node scripts/check-generic.mjs",
     "check:layout": "node scripts/check-layout.mjs",
     "check:state-spaces": "node scripts/check-local-state-spaces.mjs",
-    "build:mirror": "python scripts/build_mirror_quotient.py",
-    "build:corridor": "python scripts/build_corridor_compression.py",
-    "check": "lake build && node --check frontend/app.js && node --check frontend/laboratory.js && node --check frontend/structural-layout-worker.js && node --check frontend/state-space-visualization.js && node --check scripts/serve.mjs && npm run check:generic && npm run check:layout && npm run check:state-spaces"
+    "check:certificates": "lake exe check-certificate",
+    "build:mirror": "npm run export:mirror && python scripts/build_mirror_quotient.py",
+    "build:corridor": "npm run build:mirror && lake exe export-graph frontend/graph.corridor.json corridor && python scripts/build_corridor_compression.py",
+    "check": "lake build && node --check frontend/app.js && node --check frontend/laboratory.js && node --check frontend/structural-layout-worker.js && node --check frontend/state-space-visualization.js && node --check scripts/serve.mjs && npm run check:generic && npm run check:layout && npm run check:state-spaces && npm run check:certificates"
   },
   "dependencies": {
     "3d-force-graph": "1.80.0",

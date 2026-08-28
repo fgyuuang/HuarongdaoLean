@@ -18,28 +18,31 @@ structure Graph where
   distance : Array Nat
   index : Std.HashMap String Nat
 
-def enumerate (start : State) : Graph := Id.run do
+def enumerateByKey (start : State) (key : State → String) : Graph := Id.run do
   let mut states := #[start]
   let mut edges := #[]
   let mut distance := #[0]
   let mut known : Std.HashMap String Nat := {}
-  known := known.insert start.key 0
+  known := known.insert (key start) 0
   let mut cursor := 0
   while cursor < states.size do
     let state := states.getD cursor start
     let depth := distance.getD cursor 0
     for (piece, direction, next) in legalMoves state do
-      let target ← match known.get? next.key with
+      let target ← match known.get? (key next) with
         | some id => pure id
         | none =>
           let id := states.size
           states := states.push next
           distance := distance.push (depth + 1)
-          known := known.insert next.key id
+          known := known.insert (key next) id
           pure id
       edges := edges.push ⟨cursor, target, piece, direction⟩
     cursor := cursor + 1
   return ⟨states, edges, distance, known⟩
+
+def enumerate (start : State) : Graph :=
+  enumerateByKey start State.key
 
 def Graph.sourceState (g : Graph) (edge : Edge) : State :=
   g.states.getD edge.source classic

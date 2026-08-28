@@ -1,4 +1,4 @@
-import Huarongdao.Generic.Paths
+import Huarongdao.Generic.StateSpace
 
 namespace SlidingPuzzle
 
@@ -28,7 +28,38 @@ theorem Path.toReachable (path : Path spec source target) : Reachable spec sourc
   | nil => exact .refl _
   | cons action executed _ ih => exact .tail ⟨action, executed⟩ ih
 
+/-- Compatibility reachability embeds into canonical task reachability. -/
+theorem Reachable.toTaskReachable
+    (reachable : Reachable spec source target) :
+    (stateSpaceTask spec).Reachable source target := by
+  induction reachable with
+  | refl state => exact ⟨.nil state⟩
+  | tail step _ ih =>
+      rcases step with ⟨action, executed⟩
+      rcases ih with ⟨tail⟩
+      exact ⟨.cons action executed tail⟩
+
+/-- Canonical task reachability maps back to the compatibility predicate. -/
+theorem reachableOfTaskReachable
+    (reachable : (stateSpaceTask spec).Reachable source target) :
+    Reachable spec source target := by
+  rcases reachable with ⟨walk⟩
+  exact (pathOfTaskWalk walk).toReachable
+
+theorem reachable_iff_taskReachable :
+    Reachable spec source target ↔
+      (stateSpaceTask spec).Reachable source target :=
+  ⟨Reachable.toTaskReachable, reachableOfTaskReachable⟩
+
+theorem Path.toTaskReachable (path : Path spec source target) :
+    (stateSpaceTask spec).Reachable source target :=
+  ⟨taskWalkOfPath path⟩
+
 theorem Solution.target_reachable (solution : Solution spec) :
     Reachable spec spec.initial solution.target := solution.path.toReachable
+
+theorem Solution.target_taskReachable (solution : Solution spec) :
+    (stateSpaceTask spec).Reachable spec.initial solution.target :=
+  solution.path.toTaskReachable
 
 end SlidingPuzzle
