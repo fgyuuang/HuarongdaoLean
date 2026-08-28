@@ -2,7 +2,25 @@
 
 > 新队友安装、旧版本迁移和 Git 协作流程见 [`TEAM_START.md`](TEAM_START.md)。
 
-本项目从经典“横刀立马”华容道出发，将合法局面与一步移动定义为有限状态转移系统，并进一步抽象为支持任意有限矩形棋盘、编号矩形木块、给定初态和位置目标的通用滑块谜题形式系统。经典模式保留完整 25,955 节点商图；关卡实验室通过 HTTP 调用 Lean 通用 BFS，并独立重放返回路径以构造解的存在性证明。
+本项目从经典“横刀立马”华容道出发，将合法局面与一步移动定义为有限状态转移系统，并进一步抽象为支持任意有限矩形棋盘、编号矩形木块、给定初态和位置目标的通用滑块谜题形式系统。经典模式保留完整 25,955 节点商图；关卡实验室通过 HTTP 调用 Lean 通用 BFS 或 A*，并独立重放返回路径以构造解的存在性证明。
+
+## 版本审计
+
+当前版本架构、证明边界、Mathlib 接入、状态图导出、确定性布局和前端交互的完整检查见：
+
+- [`docs/VERSION_AUDIT.md`](docs/VERSION_AUDIT.md)：可 diff、可持续维护的审计源。
+- [`docs/HuarongdaoLean-Version-Audit-2026-08-28.docx`](docs/HuarongdaoLean-Version-Audit-2026-08-28.docx)：`main@300fe47` 的 Word 版本检查快照。
+
+本次审计确认 `lake build` 通过，Lean 源码未发现 `sorry`、`admit`、`axiom` 或 `unsafe`，Mathlib 图论/群作用分支已经并入主分支。维护时必须继续区分以下四层：
+
+```text
+Lean 定理
+  -> Lean 可执行 checker
+  -> JavaScript 搜索/布局/路径规划
+  -> Three.js / 3d-force-graph 展示
+```
+
+当前通用 A* 只保证候选动作能由 `checkSolution` 重放为合法解，不保证最短；通用 BFS 的 `complete` 是搜索器运行标记，只有进一步通过 `checkClosedGraph` 与 `checkNoGoal` 才能形成内核不可达证书；经典页面生成的是基于已导出边的证明轨迹/代码骨架，不是在浏览器中重新编译 Lean。
 
 ## 已完成内容
 
@@ -28,6 +46,9 @@
 - 图证书检查器验证商边、闭包、唯一代表、距离约束和目标下界
 - `classic116Play_minimal` 与 `ClassicStateSpaceKernel.concreteSolution_lower_bound` 将有限证书接入统一状态空间内核
 - 局部拓扑分析基础：节点度、二阶邻域、交换方形、Link 连通分支、局部维数与瓶颈候选
+- `SymmetryShortestPath` 将定长路径、定长解和最短解长度提升为任务级接口，并证明 `concrete → shape → mirror` 两层双模拟商完整保持原子步最短距离
+- `StateSpaceAnalysis` 将完整状态/边枚举、BFS 距离数组、割集与 Mathlib 桥统一参数化于 `StateSpace.Task`；各层通过 `Task.Hom` 和双模拟商连接，并证明商距离等于某个投影纤维代表的细层距离
+- `StateSpaceBfs` 提供单一的表示多态 BFS 引擎；`concretePresentation`、`shapePresentation`、`mirrorPresentation` 只替换语义投影与规范键，共用相同的队列、边表和距离数组生成过程
 
 交换方形在 Lean 中由 `ActionsCommuteAt` / `SquareAt` 定义：从同一状态执行两个不同动作时，两种执行顺序到达同一状态。`checkActionsCommuteAt_sound` 把可执行检查器的成功结果连接到这个命题，`actionsCommuteAt_steps` 则给出方形四条边对应的 `Step` 见证。当前 JavaScript 模块用于离线计算和筛选候选局部子图，不介入主状态图的可视化。
 
@@ -298,6 +319,9 @@ npm run serve
 - `Huarongdao/CorridorCompression.lean`：保留完整展开路径的加权决策骨架状态空间
 - `Huarongdao/StateSpaceKernel.lean`：经典四层状态空间的统一公开入口与端到端定理
 - `Huarongdao/MathlibSymmetry.lean`：水平反射与同形重标号的 Mathlib 群作用、轨道商、稳定子和轨道大小定理
+- `Huarongdao/SymmetryShortestPath.lean`：以等形/镜像对称商为基准的定长可达与最短路径等价；`mirror_shortestSolutionLength_116` 直接在镜像商上给出经典关卡最短距离
+- `Huarongdao/StateSpaceAnalysis.lean`：任务多态的完整有限状态空间、BFS 距离证书、层间索引投影、割集/桥接口，以及经典 `concrete → shape → mirror` 商塔
+- `Huarongdao/StateSpaceBfs.lean`：可执行表示与语义任务分离的通用 BFS；同一引擎可枚举 concrete、shape、mirror 层，并保留具体动作作为路径提升和前端交互载荷
 - `Huarongdao/Search.lean`：BFS、图 checker 与商图下界证书
 - `Huarongdao/ClassicCertificate.lean`：经典有限商图的 116 下界、玩家解最短性及统一 `StateSpace.Task` 接口
 - `Huarongdao/Minimality.lean`：势函数最短性定理
@@ -311,8 +335,9 @@ npm run serve
 - `Huarongdao/Generic/Search.lean`：有资源上限的精确 BFS、StateGraph、GraphPath 与边 checker
 - `Huarongdao/Generic/Verification.lean`：搜索成功到可达目标及解存在的最终证明链
 - `Huarongdao/Generic/Certificates.lean`：有限状态集闭包 checker、不可达证书、势函数下界与通用最短性定理
-- `Huarongdao/Generic/MathlibGraph.lean`：项目状态图到 `SimpleGraph` 的投影、walk/可达性桥和 `SimpleGraph.dist` 最短路接口
-- `Huarongdao/Generic/Examples.lean`：非华容道 3×2 内核回归实例
+- `Huarongdao/Generic/MathlibGraph.lean`：项目状态图到 `SimpleGraph` 的投影、可判定邻接、walk/可达性桥和 `SimpleGraph.dist` 最短路接口
+- `Huarongdao/Generic/FiniteMathlibGraph.lean`：认证有限数组到诱导子图的嵌入、闭包下完整语义图/有限图/BFS 数组距离一致性、谓词割集和必经点接口
+- `Huarongdao/Generic/Examples.lean`：非华容道 3×2 内核回归实例，以及有限 BFS 图、完整语义图的 Mathlib 距离与桥判定实例
 - `GenericMain.lean`：通用 Lean 求解器 JSON 输出程序
 - `frontend/laboratory.js`：关卡编辑、API、回放和证明链
 - `frontend/structural-layout-worker.js`：任意关卡的确定性四维展开、镜像约束和三维投影
@@ -340,4 +365,4 @@ npm run serve
 
 ## 当前边界
 
-当前“步”定义为单个棋子平移一个格。最短距离因此按单格移动计数。两个完整图模式绘制整个可达连通分量；局部探索只绘制本局逐步发现的子图。棋盘操作和自动导航都会移动当前状态环并更新路径，其中自动导航的相邻帧必须由一条 Lean 合法边连接。经典参考坐标适配自 2swap/Klotski-Webpage，自定义坐标由本项目 Worker 生成；两者都只是可视化数据。地标、镜像配对、力参数、屏幕中的细颈以及 `3d-force-graph` 的松弛结果都不是数学证书。Lean 权威数据仍是状态、动作标签与合法有向一步；视觉上的桥或门区必须经过有限图 checker 后才能成为定理。BFS 枚举器与独立证书检查器都是可执行 Lean 程序。一般性的动作枚举、路径、商证书下界和最短性推导已经形式证明；完整 25,955 节点商图的 true 证书现已由 `ClassicCertificate.lean` 封装为可被统一状态空间内核直接消费的 116 步下界。
+当前“步”定义为单个棋子平移一个格。最短距离因此按单格移动计数。两个完整图模式绘制整个可达连通分量；局部探索只绘制本局逐步发现的子图。棋盘操作和自动导航都会移动当前状态环并更新路径，其中自动导航的相邻帧必须由一条 Lean 合法边连接。经典参考坐标适配自 2swap/Klotski-Webpage，自定义坐标由本项目 Worker 生成；两者都只是可视化数据。地标、镜像配对、力参数、屏幕中的细颈以及 `3d-force-graph` 的松弛结果都不是数学证书。Lean 权威数据仍是状态、动作标签与合法有向一步；视觉上的桥或门区必须经过有限图 checker 后才能成为定理。通用精确 `StateGraph` 现可认证嵌入 Mathlib 有限诱导子图；在额外通过 `checkClosedGraph` 后，Lean 证明完整语义图距离、有限诱导子图距离和 BFS 距离数组三者一致，Mathlib 的有限连通性和 `IsBridge` 因而可以直接应用。经典 25,955 节点数据仍是同形商 `Graph`，尚需单独的商图桥接。BFS 枚举器与独立证书检查器都是可执行 Lean 程序。一般性的动作枚举、路径、商证书下界和最短性推导已经形式证明；完整 25,955 节点商图的 true 证书现已由 `ClassicCertificate.lean` 封装为可被统一状态空间内核直接消费的 116 步下界。
