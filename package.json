@@ -14,9 +14,10 @@
     "check:layout": "node scripts/check-layout.mjs",
     "check:state-spaces": "node scripts/check-local-state-spaces.mjs",
     "check:certificates": "lake exe check-certificate",
+    "check:local-topology": "node scripts/check-local-topology.mjs",
     "build:mirror": "npm run export:mirror && python scripts/build_mirror_quotient.py",
     "build:corridor": "npm run build:mirror && lake exe export-graph frontend/graph.corridor.json corridor && python scripts/build_corridor_compression.py",
-    "check": "lake build && node --check frontend/app.js && node --check frontend/laboratory.js && node --check frontend/structural-layout-worker.js && node --check frontend/state-space-visualization.js && node --check scripts/serve.mjs && npm run check:generic && npm run check:layout && npm run check:state-spaces && npm run check:certificates"
+    "check": "lake build && node --check frontend/app.js && node --check frontend/local-topology.js && node --check frontend/local-topology-view.js && node --check frontend/laboratory.js && node --check frontend/structural-layout-worker.js && node --check frontend/state-space-visualization.js && node --check scripts/serve.mjs && npm run check:generic && npm run check:layout && npm run check:state-spaces && npm run check:local-topology && npm run check:certificates"
   },
   "dependencies": {
     "3d-force-graph": "1.80.0",

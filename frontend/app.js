@@ -1,5 +1,6 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
+import { createLocalTopologyView } from './local-topology-view.js';
 
 const pieces = [
   { label: '曹操', cls: 'cao', w: 2, h: 2 },
@@ -78,6 +79,8 @@ let randomWalkEnabled = false;
 let forceGraph = null, forceNodes = [], forceLinks = [], forcePinned = true;
 let forceCurrentMarker = null, forceStartMarker = null, forceEndMarker = null, forceHoveredNode = null;
 let forceWidth = 0, forceHeight = 0, forceInitialFit = true;
+let localTopologyView = null, localTopologyViewPromise = null;
+let topologyAnimationToken = 0;
 const forcePointer = { x: 0, y: 0 };
 let forcePointerDown = null, forceDragActive = false;
 let lastZoomText = '', rendererHeight = 1;
@@ -882,6 +885,42 @@ function forceNodeColor(node) {
   return isDarkTheme() ? '#aab3ae' : '#59635e';
 }
 
+function renderTopologyBoard(state, moveText = '局部拓扑样本中心') {
+  ui.board.replaceChildren();
+  state.positions.forEach(([x, y], index) => {
+    const spec = pieces[index];
+    const wrap = document.createElement('div');
+    wrap.className = 'piece ' + spec.cls;
+    Object.assign(wrap.style, { left: x * 25 + '%', top: y * 20 + '%', width: spec.w * 25 + '%', height: spec.h * 20 + '%' });
+    const button = document.createElement('button');
+    button.textContent = spec.label;
+    button.tabIndex = -1;
+    wrap.append(button);
+    ui.board.append(wrap);
+  });
+  ui['node-id'].textContent = '#' + state.id;
+  ui.distance.textContent = state.distance + ' 步';
+  ui.degree.textContent = '局部样本';
+  ui['last-move'].textContent = moveText;
+  ui['lean-transition'].textContent = 'ShapeStep';
+  ui['lean-goal'].textContent = String(state.goal);
+}
+
+async function animateTopologyBoardPath({ start, target, steps }) {
+  const token = ++topologyAnimationToken;
+  if (!steps.length) {
+    renderTopologyBoard(target);
+    return;
+  }
+  renderTopologyBoard(start, '局部路径起点 #' + start.id);
+  for (let index = 0; index < steps.length; index += 1) {
+    await wait(90);
+    if (token !== topologyAnimationToken || graphMode !== 'topology') return;
+    const { state, edge } = steps[index];
+    renderTopologyBoard(state, '局部路径 ' + (index + 1) + '/' + steps.length + '：' + pieces[edge.piece].label + '向' + edge.direction + ' · #' + state.id);
+  }
+}
+
 function referenceAnchorForce(strength = 0.015) {
   let nodes = [];
   function force(alpha) {
@@ -938,6 +977,91 @@ function forceCameraDistance() {
   return Math.hypot(position.x - target.x, position.y - target.y, position.z - target.z);
 }
 
+function preferredFocusTargetId() {
+  if (routeEnd !== null && graphData?.states[routeEnd]) return routeEnd;
+  if (!graphData?.states?.length) return current;
+  let bestId = null, bestDistance = Infinity;
+  for (const state of graphData.states) {
+    if (!state.goal) continue;
+    const distance = isCorridorSpace
+      ? (state.primitiveDistance ?? state.distance ?? Infinity)
+      : (state.distance ?? Infinity);
+    if (distance < bestDistance) {
+      bestId = state.id;
+      bestDistance = distance;
+    }
+  }
+  return bestId ?? current;
+}
+
+function radiusAroundFlatPositions(target, positions) {
+  let radiusSquared = 1;
+  for (let index = 0; index < positions.length; index += 3) {
+    const dx = positions[index] - target.x;
+    const dy = positions[index + 1] - target.y;
+    const dz = positions[index + 2] - target.z;
+    radiusSquared = Math.max(radiusSquared, dx * dx + dy * dy + dz * dz);
+  }
+  return Math.sqrt(radiusSquared);
+}
+
+function targetCenteredFitDistance(radius, cameraObject, padding = 1.12) {
+  const verticalFov = THREE.MathUtils.degToRad(cameraObject.fov || 45);
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(0.01, cameraObject.aspect || 1));
+  const limitingFov = Math.min(verticalFov, horizontalFov);
+  return radius * padding / Math.sin(limitingFov / 2);
+}
+
+function cameraDirection(position, target, fallback = new THREE.Vector3(0.78, 0.48, 0.96), focusToCenter = null) {
+  const direction = new THREE.Vector3(position.x - target.x, position.y - target.y, position.z - target.z);
+  if (direction.lengthSq() <= 1e-8) direction.copy(fallback);
+  direction.normalize();
+  if (focusToCenter?.lengthSq() > 1e-8) {
+    const graphAxis = focusToCenter.clone().normalize();
+    const alignment = direction.dot(graphAxis);
+    if (Math.abs(alignment) > 0.72) {
+      direction.addScaledVector(graphAxis, -alignment);
+      if (direction.lengthSq() <= 1e-8) {
+        const reference = Math.abs(graphAxis.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+        direction.crossVectors(reference, graphAxis);
+      }
+      direction.normalize();
+    }
+  }
+  return direction;
+}
+
+function fitForceGraphToTarget(duration = 700) {
+  const graph = ensureForceGraph();
+  const focusNode = forceNodePosition(preferredFocusTargetId());
+  if (!focusNode) return;
+  const target = { x: focusNode.x, y: focusNode.y, z: focusNode.z };
+  let radius = 1;
+  for (const node of forceNodes) {
+    if (![node.x, node.y, node.z].every(Number.isFinite)) continue;
+    radius = Math.max(radius, Math.hypot(node.x - target.x, node.y - target.y, node.z - target.z));
+  }
+  const forceCenter = forceNodes.reduce((sum, node) => {
+    if ([node.x, node.y, node.z].every(Number.isFinite)) sum.add(new THREE.Vector3(node.x, node.y, node.z));
+    return sum;
+  }, new THREE.Vector3()).multiplyScalar(1 / Math.max(1, forceNodes.length));
+  const cameraObject = graph.camera();
+  const distance = Math.max(80, targetCenteredFitDistance(radius, cameraObject));
+  const direction = cameraDirection(
+    graph.cameraPosition(),
+    graph.controls().target || { x: 0, y: 0, z: 0 },
+    undefined,
+    forceCenter.sub(new THREE.Vector3(target.x, target.y, target.z))
+  );
+  cameraObject.far = Math.max(cameraObject.far, distance + radius * 2);
+  cameraObject.updateProjectionMatrix();
+  graph.cameraPosition({
+    x: target.x + direction.x * distance,
+    y: target.y + direction.y * distance,
+    z: target.z + direction.z * distance
+  }, target, duration);
+}
+
 function updateForceTooltip(node = forceHoveredNode) {
   forceHoveredNode = node;
   ui['node-tooltip'].classList.toggle('visible', Boolean(node));
@@ -992,7 +1116,7 @@ function ensureForceGraph() {
       ui['force3d-status'].textContent = forcePinned ? '参考坐标已固定' : '力导向已冷却';
       if (graphMode === 'force' && forceInitialFit) {
         forceInitialFit = false;
-        requestAnimationFrame(() => forceGraph.zoomToFit(700, 48));
+        requestAnimationFrame(() => fitForceGraphToTarget());
       }
       if (graphMode === 'force') updateGraphState();
     })
@@ -1385,8 +1509,12 @@ function locateCurrent() {
   controls.target.copy(target); camera.position.copy(target).add(direction.multiplyScalar(16)); controls.update();
 }
 function setGraphMode(mode, refit = true) {
-  if (!['overview', 'force', 'explore'].includes(mode)) return;
+  if (!['overview', 'force', 'explore', 'topology'].includes(mode)) return;
   const previousMode = graphMode;
+  if (previousMode === 'topology' && mode !== 'topology') {
+    topologyAnimationToken += 1;
+    renderState(current, false);
+  }
   if (previousMode === 'force' && mode !== 'force' && forceGraph) forceGraph.pauseAnimation();
   graphMode = mode;
   const projectionActive = caoMergeEnabled || goalSinkEnabled;
@@ -1397,8 +1525,9 @@ function setGraphMode(mode, refit = true) {
   pointCloud = mode === 'overview'
     ? (caoMergeEnabled ? caoProjectionPoints : goalSinkEnabled ? goalSinkPoints : overviewPoints)
     : mode === 'explore' ? explorePoints : null;
-  ui.graph.hidden = mode === 'force';
+  ui.graph.hidden = mode === 'force' || mode === 'topology';
   ui['graph-force'].hidden = mode !== 'force';
+  document.getElementById('local-topology-view').hidden = mode !== 'topology';
   ui['force3d-actions'].hidden = mode !== 'force';
   ui['graph-wrap'].dataset.mode = mode;
   ui['force-settings-toggle'].hidden = mode !== 'explore';
@@ -1406,6 +1535,16 @@ function setGraphMode(mode, refit = true) {
   document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === mode));
   ui['graph-count-label'].textContent = mode === 'explore' ? '当前织图节点' : '完整图节点';
   if (mode === 'explore') rebuildExploreGraph();
+  if (mode === 'topology') {
+    setProofTrace(false);
+    localTopologyViewPromise ||= createLocalTopologyView(document.getElementById('local-topology-view'), { onPath: animateTopologyBoardPath })
+      .then(view => { localTopologyView = view; view.setActive(graphMode === 'topology'); return view; })
+      .catch(error => {
+        document.querySelector('.local-topology-loading').textContent = '局部子图载入失败';
+        console.error(error);
+      });
+  }
+  localTopologyView?.setActive(mode === 'topology');
   updateGraphState();
   if (mode === 'force') {
     requestAnimationFrame(() => {
@@ -1415,35 +1554,54 @@ function setGraphMode(mode, refit = true) {
         resizeRenderer();
         syncForceMarkerPositions();
         syncForceMarkerScales();
-        if (refit && !forceInitialFit) graph.zoomToFit(700, 48);
+        if (refit && !forceInitialFit) fitForceGraphToTarget();
       } catch (error) {
         ui['force3d-status'].textContent = '3d-force-graph 初始化失败';
         console.error(error);
       }
     });
+  } else if (mode === 'topology') {
+    if (refit) localTopologyViewPromise?.then(view => view?.fit());
   } else if (refit) requestAnimationFrame(fitGraph);
 }
 
 function fitGraph() {
-  if (graphMode === 'force') {
-    ensureForceGraph().zoomToFit(700, 48);
+  if (graphMode === 'topology') {
+    localTopologyView?.fit();
     return;
   }
-  let center = graphCenter.clone(), size = graphSize;
+  if (graphMode === 'force') {
+    fitForceGraphToTarget();
+    return;
+  }
   if ((graphMode === 'explore' && exploreGroup.children.length) ||
       (graphMode === 'overview' && (caoMergeEnabled || goalSinkEnabled))) {
     const projection = caoMergeEnabled ? caoProjectionGroup : goalSinkGroup;
     const box = new THREE.Box3().setFromObject(graphMode === 'explore' ? exploreGroup : projection);
-    center = box.getCenter(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
     const dimensions = box.getSize(new THREE.Vector3());
-    size = Math.max(4, dimensions.length());
+    const size = Math.max(4, dimensions.length());
+    controls.target.copy(center);
+    camera.position.copy(center).add(graphMode === 'explore'
+      ? new THREE.Vector3(0, 0, Math.max(12, size * 1.18))
+      : new THREE.Vector3(size * 0.78, size * 0.48, size * 0.96));
+    camera.near = 0.05; camera.far = 1200; camera.updateProjectionMatrix(); controls.update();
+    ui['zoom-label'].textContent = Math.round(camera.position.distanceTo(controls.target)) + 'u';
+    return;
   }
-  controls.target.copy(center);
-  const exploreView = graphMode === 'explore';
-  camera.position.copy(center).add(exploreView
-    ? new THREE.Vector3(0, 0, Math.max(12, size * 1.18))
-    : new THREE.Vector3(size * 0.78, size * 0.48, size * 0.96));
-  camera.near = 0.05; camera.far = 1200; camera.updateProjectionMatrix(); controls.update();
+  const focusTarget = nodePosition(preferredFocusTargetId(), new THREE.Vector3());
+  const positions = overviewVisualPositions || graphPositions;
+  const radius = radiusAroundFlatPositions(focusTarget, positions);
+  const distance = targetCenteredFitDistance(radius, camera);
+  const direction = cameraDirection(camera.position, controls.target, undefined, graphCenter.clone().sub(focusTarget));
+  controls.target.copy(focusTarget);
+  camera.position.copy(focusTarget).add(direction.multiplyScalar(distance));
+  controls.maxDistance = Math.max(600, distance * 1.25);
+  camera.near = 0.05;
+  camera.far = Math.max(1200, distance + radius * 2);
+  camera.updateProjectionMatrix();
+  controls.update();
+  ui['zoom-label'].textContent = Math.round(camera.position.distanceTo(controls.target)) + 'u';
 }
 function resizeRenderer() {
   const rect = ui['graph-wrap'].getBoundingClientRect();
@@ -1609,6 +1767,7 @@ function zoomGraphBy(factor) {
     return;
   }
   camera.position.sub(controls.target).multiplyScalar(factor).add(controls.target); controls.update();
+  ui['zoom-label'].textContent = Math.round(camera.position.distanceTo(controls.target)) + 'u';
 }
 document.getElementById('fit').onclick = fitGraph;
 document.getElementById('locate-current').onclick = locateCurrent;
@@ -1856,6 +2015,14 @@ if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
   setGoalSink: enabled => { ui['goal-sink-toggle'].checked = Boolean(enabled); setGoalSink(enabled); },
   selectStart: id => { selectionMode = 'start'; routeStartPinned = true; return selectRouteNode(id); },
   selectEnd: id => { selectionMode = 'end'; return selectRouteNode(id); },
+  fit: fitGraph,
+  focusTargetId: preferredFocusTargetId,
+  overviewScreen: id => {
+    const point = nodePosition(id, new THREE.Vector3()).project(camera);
+    const rect = ui.graph.getBoundingClientRect();
+    return { x: rect.left + (point.x + 1) * rect.width / 2, y: rect.top + (1 - point.y) * rect.height / 2 };
+  },
+  localTopologyScreen: id => localTopologyView?.screenPosition(id) || null,
   locateCurrent,
   reheatForce: releaseAndReheatForceGraph,
   pinForce: pinForceReferenceShape,
