@@ -1,0 +1,72 @@
+name: 开发任务
+description: 在开始编码前登记目标、负责人、文件边界和验收条件
+title: "[Task] "
+labels:
+  - task
+body:
+  - type: input
+    id: owner
+    attributes:
+      label: 负责人
+      description: 填写 GitHub 用户名
+      placeholder: "@tang0805-em"
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 描述要解决的问题和预期结果
+    validations:
+      required: true
+  - type: input
+    id: integrator
+    attributes:
+      label: 合并负责人
+      description: 三位协作者中的任意一位；PR 合并前可以调整
+      placeholder: "@10231510"
+    validations:
+      required: true
+  - type: textarea
+    id: allowed
+    attributes:
+      label: 允许修改
+      description: 列出预计修改的模块或文件
+      placeholder: |
+        - scripts/
+        - package.json
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden
+    attributes:
+      label: 禁止修改
+      description: 列出必须保持不变的模块或文件
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收条件
+      description: 给出可执行、可观察的完成标准
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: 依赖和合并顺序
+      description: 填写依赖的 Issue/PR，以及应先于或晚于哪些工作合并
+      placeholder: 无
+    validations:
+      required: true
+  - type: checkboxes
+    id: contract
+    attributes:
+      label: 协作确认
+      options:
+        - label: 我会在个人功能分支和独立 worktree 中开发
+          required: true
+        - label: 我不会直接修改或推送 main
+          required: true
+        - label: 我会通过 PR 请求至少一位队友审查，并明确一位合并负责人
+          required: true

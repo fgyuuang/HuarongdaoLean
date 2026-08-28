@@ -1,5 +1,10 @@
 # HuarongdaoLean 团队启动与同步指南
 
+> 三人分支、PR、统一合并和 Agent 使用规则见
+> [`COLLABORATION.md`](COLLABORATION.md) 与
+> [`TEAM_AGENT_PROMPTS.md`](TEAM_AGENT_PROMPTS.md)。如果本文件中的旧同步示例
+> 与 `COLLABORATION.md` 冲突，以 `COLLABORATION.md` 为准。
+
 这份文档给第一次加入项目的队友使用，也适用于之前直接拿到旧版文件夹、没有通过 `git clone` 获取项目的队友。
 
 项目仓库：
@@ -225,6 +230,9 @@ git reset --hard
 除非项目负责人明确要求并确认目标分支。
 
 ## 4. 日常同步流程
+
+> `main` 只作为集成分支。日常开发应按 `COLLABORATION.md` 在独立 worktree
+> 和个人功能分支中进行，并通过 PR 交给本 PR 指定的轮值集成人合并。
 
 开始当天工作前，先更新 `main`：
 
