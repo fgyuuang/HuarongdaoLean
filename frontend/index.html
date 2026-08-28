@@ -79,6 +79,16 @@
           <span id="graph-count-label">完整图节点</span><strong id="explored-count">0</strong><button id="force-settings-toggle" class="force-settings-toggle" title="调整探索模式力导向参数">⚙ 参数</button>
         </div>
       </div>
+      <div id="cao-controls" class="cao-controls">
+        <label class="cao-toggle"><input id="cao-view-toggle" type="checkbox"><span>追踪曹操</span></label>
+        <label class="cao-toggle"><input id="cao-merge-toggle" type="checkbox"><span>同位合并</span></label>
+        <label class="cao-toggle"><input id="goal-sink-toggle" type="checkbox"><span>终局汇点</span></label>
+        <select id="cao-position-filter" aria-label="筛选曹操位置" disabled>
+          <option value="current">跟随当前</option>
+          <option value="all">全部位置</option>
+        </select>
+        <span id="cao-trace-detail">正在统计曹操状态</span>
+      </div>
       <div id="force-settings" class="force-settings" hidden>
          <div class="force-settings-heading"><strong>力导向参数</strong><button id="force-reset" type="button">恢复默认</button><label class="force-toggle-row"><span>自动随机游走</span><input id="random-walk-toggle" type="checkbox"><b id="random-walk-status">关闭</b></label></div>
          <label><span>连线长度 <b id="force-rest-value">2.15</b></span><input id="force-rest" type="range" min="0.15" max="12" step="0.05" value="2.15"></label>
@@ -181,7 +191,7 @@
   </dialog>
 
   <script src="vendor/3d-force-graph.min.js"></script>
-  <script type="module" src="app.js?v=local-state-spaces-3"></script>
-  <script type="module" src="laboratory.js?v=local-state-spaces-3"></script>
+  <script type="module" src="app.js?v=local-state-spaces-4"></script>
+  <script type="module" src="laboratory.js?v=local-state-spaces-4"></script>
 </body>
 </html>

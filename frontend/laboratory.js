@@ -36,18 +36,26 @@ let pieces = [], solution = null, resultData = null, playStep = 0, busy = false,
 let genericGraph = null, genericOutgoing = [], graphCurrent = 0, graphHistory = [0], graphHistoryEdges = [], graphMode = 'overview';
 let graphLayout = [], graphExploreLayout = new Map(), graphVisibleIds = [], graphRouteStart = 0, graphRouteEnd = null, graphRouteEdges = [], graphSelectionMode = 'end', graphRoutePinned = false, graphAnimationToken = 0;
 let labForceGraph = null, labForceNodes = [], labForceLinks = [], labForcePinned = false, labForceNeedsFit = false, labForceWidth = 0, labForceHeight = 0, labForceHighlightedLinks = new Set();
+let labForcePointerDown = null, labForceDragActive = false;
+let labGraphViewportWidth = 1, labGraphViewportHeight = 1;
 let structuralLayoutWorker = null, structuralLayoutRequest = 0, structuralLayoutReady = false, structuralLayoutMeta = null;
 const labGraphScene = new THREE.Scene(), labGraphCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 3000);
-const labGraphRenderer = new THREE.WebGLRenderer({ canvas: $('lab-graph-canvas'), antialias: true, preserveDrawingBuffer: true });
-labGraphRenderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2)); labGraphRenderer.outputColorSpace = THREE.SRGBColorSpace;
+const labGraphRenderer = new THREE.WebGLRenderer({ canvas: $('lab-graph-canvas'), antialias: true, powerPreference: 'high-performance' });
+labGraphRenderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); labGraphRenderer.outputColorSpace = THREE.SRGBColorSpace;
 const labGraphControls = new OrbitControls(labGraphCamera, labGraphRenderer.domElement); labGraphControls.enableDamping = true; labGraphControls.dampingFactor = .07; labGraphControls.minDistance = 2; labGraphControls.maxDistance = 900;
 const labGraphRaycaster = new THREE.Raycaster(), labGraphPointer = new THREE.Vector2(), labGraphGroup = new THREE.Group();
-labGraphRaycaster.params.Points.threshold = .45; labGraphScene.add(labGraphGroup); let labGraphPoints = null, labGraphPointerDown = null;
+labGraphRaycaster.params.Points.threshold = .45; labGraphScene.add(labGraphGroup);
+let labGraphPoints = null, labGraphPointerDown = null, labGraphHoverPosition = null;
+let labGraphHoverFrame = null, labGraphLastHoverPick = 0;
 
 function switchMode(mode) {
   const lab = mode === 'lab';
   $('laboratory').hidden = !lab; $('classic-workspace').hidden = lab;
   $('mode-lab').classList.toggle('active', lab); $('mode-classic').classList.toggle('active', !lab);
+  const nextUrl = new URL(location.href);
+  if (lab) nextUrl.searchParams.set('mode', 'lab');
+  else nextUrl.searchParams.delete('mode');
+  history.replaceState(history.state, '', nextUrl);
   if (lab) renderAll();
 }
 $('mode-classic').onclick = () => switchMode('classic');
@@ -475,10 +483,11 @@ function ensureLabForceGraph(){
   if(labForceGraph)return labForceGraph;
   if(!window.ForceGraph3D)throw new Error('3d-force-graph runtime unavailable');
   if(!labForceNodes.length)prepareLabForceGraphData();
-  const container=$('lab-graph-force'),rect=container.getBoundingClientRect(),count=labForceNodes.length;
-  labForceGraph=new window.ForceGraph3D(container,{controlType:'orbit',rendererConfig:{antialias:count<5000,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'}})
-    .width(Math.max(1,Math.round(rect.width)))
-    .height(Math.max(1,Math.round(rect.height)))
+  const container=$('lab-graph-force'),count=labForceNodes.length;
+  labForceWidth=labGraphViewportWidth;labForceHeight=labGraphViewportHeight;
+  labForceGraph=new window.ForceGraph3D(container,{controlType:'orbit',rendererConfig:{antialias:count<5000,alpha:false,powerPreference:'high-performance'}})
+    .width(labForceWidth)
+    .height(labForceHeight)
     .backgroundColor(document.documentElement.classList.contains('dark')?'#1b1f1c':'#f2f3ef')
     .showNavInfo(false)
     .nodeId('id')
@@ -508,7 +517,7 @@ function ensureLabForceGraph(){
   const chargeForce=labForceGraph.d3Force('charge');chargeForce?.strength(count<500?-10:count<5000?-3:-.7).distanceMax(count<5000?90:48).theta(1.25);
   labForceGraph.d3Force('reference-anchor',labReferenceAnchorForce(count>10000?.02:.012));
   labForceGraph.renderer().setPixelRatio(Math.min(window.devicePixelRatio||1,count>10000?1:1.5));
-  labForceWidth=Math.max(1,Math.round(rect.width));labForceHeight=Math.max(1,Math.round(rect.height));labForcePinned=true;
+  labForcePinned=true;
   return labForceGraph;
 }
 function releaseAndReheatLabForceGraph(){
@@ -582,16 +591,75 @@ function setLabGraphMode(mode,fit=true){
   if(!['overview','force','explore'].includes(mode))return;graphMode=mode;
   document.querySelectorAll('[data-lab-graph-mode]').forEach(item=>item.classList.toggle('active',item.dataset.labGraphMode===mode));
   $('lab-graph-canvas').hidden=mode==='force';$('lab-graph-force').hidden=mode!=='force';$('lab-force-reheat').hidden=mode!=='force';$('lab-force-pin').hidden=mode!=='force';$('lab-graph-tip').hidden=true;
+  resizeLabGraphSurfaces();
   if(mode==='force'){ensureLabForceGraph().resumeAnimation();refreshLabForceGraph(fit);}else{labForceGraph?.pauseAnimation();rebuildGenericGraph(fit);}
 }
 document.querySelectorAll('[data-lab-graph-mode]').forEach(button=>button.onclick=()=>setLabGraphMode(button.dataset.labGraphMode,true));
 $('lab-route-start').onclick=()=>{graphSelectionMode='start';$('lab-route-start').classList.add('active');$('lab-route-end').classList.remove('active');};$('lab-route-end').onclick=()=>{graphSelectionMode='end';$('lab-route-end').classList.add('active');$('lab-route-start').classList.remove('active');};$('lab-route-play').onclick=playGraphRoute;$('lab-graph-home').onclick=()=>{graphAnimationToken++;graphCurrent=0;graphHistory=[0];graphHistoryEdges=[];graphRouteStart=0;graphRouteEnd=null;graphRouteEdges=[];graphRoutePinned=false;renderCurrentPlayBoard();updateGraphReadout();rebuildGenericGraph(true);};$('lab-graph-locate').onclick=()=>focusGraphNode(graphCurrent);
 $('lab-force-reheat').onclick=releaseAndReheatLabForceGraph;$('lab-force-pin').onclick=restoreLabForceInitialLayout;
 $('lab-layout-recompute').onclick=startStructuralLayout;
+const labForceSurface=$('lab-graph-force');
+labForceSurface.addEventListener('pointerdown',event=>{labForcePointerDown={x:event.clientX,y:event.clientY};labForceDragActive=false;});
+labForceSurface.addEventListener('pointermove',event=>{
+  if(labForcePointerDown&&!labForceDragActive&&Math.hypot(event.clientX-labForcePointerDown.x,event.clientY-labForcePointerDown.y)>4){
+    labForceDragActive=true;labForceGraph?.enablePointerInteraction(false);$('lab-graph-tip').hidden=true;
+  }
+});
+function finishLabForcePointer(){
+  labForcePointerDown=null;
+  if(labForceDragActive)requestAnimationFrame(()=>labForceGraph?.enablePointerInteraction(true));
+  labForceDragActive=false;
+}
+labForceSurface.addEventListener('pointerup',finishLabForcePointer);
+labForceSurface.addEventListener('pointercancel',finishLabForcePointer);
+labForceSurface.addEventListener('pointerleave',finishLabForcePointer);
 function zoomLabGraph(factor){if(graphMode==='force'){const graph=ensureLabForceGraph(),position=graph.cameraPosition(),target=graph.controls().target||{x:0,y:0,z:0};graph.cameraPosition({x:target.x+(position.x-target.x)*factor,y:target.y+(position.y-target.y)*factor,z:target.z+(position.z-target.z)*factor},target,280);return;}labGraphCamera.position.sub(labGraphControls.target).multiplyScalar(factor).add(labGraphControls.target);}
 $('lab-graph-zoom-in').onclick=()=>zoomLabGraph(.55);$('lab-graph-zoom-out').onclick=()=>zoomLabGraph(1.7);
-labGraphRenderer.domElement.addEventListener('pointerdown',event=>labGraphPointerDown={x:event.clientX,y:event.clientY});labGraphRenderer.domElement.addEventListener('pointerup',event=>{if(!labGraphPointerDown||Math.hypot(event.clientX-labGraphPointerDown.x,event.clientY-labGraphPointerDown.y)>5)return;const id=graphNodeAt(event);if(id!=null)selectGraphNode(id);});labGraphRenderer.domElement.addEventListener('pointermove',event=>{const id=graphNodeAt(event),tip=$('lab-graph-tip'),rect=event.currentTarget.getBoundingClientRect();if(id==null){tip.hidden=true;return;}const node=genericGraph.nodes[id];tip.hidden=false;tip.style.left=(event.clientX-rect.left+12)+'px';tip.style.top=(event.clientY-rect.top+12)+'px';tip.textContent='#'+id+' · d='+node.distance+(node.goal?' · GOAL':'');});labGraphRenderer.domElement.addEventListener('pointerleave',()=>{$('lab-graph-tip').hidden=true;});
-function animateLabGraph(){requestAnimationFrame(animateLabGraph);if(graphMode==='force'&&labForceGraph){const container=$('lab-graph-force'),width=Math.max(1,Math.round(container.clientWidth)),height=Math.max(1,Math.round(container.clientHeight));if(width!==labForceWidth||height!==labForceHeight){labForceWidth=width;labForceHeight=height;labForceGraph.width(width).height(height);}$('lab-graph-zoom').textContent=Math.round(labForceCameraDistance())+'u';return;}const canvas=labGraphRenderer.domElement,width=Math.max(1,canvas.clientWidth),height=Math.max(1,canvas.clientHeight);if(canvas.width!==Math.round(width*labGraphRenderer.getPixelRatio())||canvas.height!==Math.round(height*labGraphRenderer.getPixelRatio())){labGraphRenderer.setSize(width,height,false);labGraphCamera.aspect=width/height;labGraphCamera.updateProjectionMatrix();}labGraphControls.update();const field=2*Math.tan(THREE.MathUtils.degToRad(labGraphCamera.fov)/2);labGraphGroup.children.forEach(child=>{if(!child.userData.pixelDiameter)return;const world=child.position.distanceTo(labGraphCamera)*field*child.userData.pixelDiameter/height;child.scale.setScalar(world/.7);});$('lab-graph-zoom').textContent=Math.round(labGraphCamera.position.distanceTo(labGraphControls.target))+'u';labGraphRenderer.render(labGraphScene,labGraphCamera);}animateLabGraph();
+labGraphRenderer.domElement.addEventListener('pointerdown',event=>{
+  labGraphPointerDown={x:event.clientX,y:event.clientY};
+  labGraphHoverPosition=null;$('lab-graph-tip').hidden=true;
+});
+labGraphRenderer.domElement.addEventListener('pointerup',event=>{
+  const start=labGraphPointerDown;labGraphPointerDown=null;
+  if(!start||Math.hypot(event.clientX-start.x,event.clientY-start.y)>5)return;
+  const id=graphNodeAt(event);if(id!=null)selectGraphNode(id);
+});
+function updateLabGraphHover(position){
+  if(!position||labGraphPointerDown)return;
+  const event={clientX:position.clientX,clientY:position.clientY};
+  const id=graphNodeAt(event),tip=$('lab-graph-tip'),rect=labGraphRenderer.domElement.getBoundingClientRect();
+  if(id==null){tip.hidden=true;return;}
+  const node=genericGraph.nodes[id];tip.hidden=false;
+  tip.style.left=(event.clientX-rect.left+12)+'px';tip.style.top=(event.clientY-rect.top+12)+'px';
+  tip.textContent='#'+id+' · d='+node.distance+(node.goal?' · GOAL':'');
+}
+labGraphRenderer.domElement.addEventListener('pointermove',event=>{
+  labGraphHoverPosition={clientX:event.clientX,clientY:event.clientY};
+  if(labGraphPointerDown||labGraphHoverFrame!==null)return;
+  const run=now=>{
+    if(now-labGraphLastHoverPick<42){labGraphHoverFrame=requestAnimationFrame(run);return;}
+    labGraphHoverFrame=null;labGraphLastHoverPick=now;updateLabGraphHover(labGraphHoverPosition);
+  };
+  labGraphHoverFrame=requestAnimationFrame(run);
+});
+function clearLabGraphPointer(){labGraphPointerDown=null;labGraphHoverPosition=null;$('lab-graph-tip').hidden=true;}
+labGraphRenderer.domElement.addEventListener('pointercancel',clearLabGraphPointer);
+labGraphRenderer.domElement.addEventListener('pointerleave',clearLabGraphPointer);
+let labLastZoomText='';
+function updateLabZoomLabel(distance){const text=Math.round(distance)+'u';if(text===labLastZoomText)return;labLastZoomText=text;$('lab-graph-zoom').textContent=text;}
+function resizeLabGraphSurfaces(){
+  const stage=$('lab-graph-canvas').parentElement,rect=stage.getBoundingClientRect();
+  const width=Math.max(1,Math.round(rect.width)),height=Math.max(1,Math.round(rect.height));
+  if(width===labGraphViewportWidth&&height===labGraphViewportHeight)return;
+  labGraphViewportWidth=width;labGraphViewportHeight=height;
+  labGraphRenderer.setSize(width,height,false);labGraphCamera.aspect=width/height;labGraphCamera.updateProjectionMatrix();
+  if(labForceGraph&&(width!==labForceWidth||height!==labForceHeight)){
+    labForceWidth=width;labForceHeight=height;labForceGraph.width(width).height(height);
+  }
+}
+new ResizeObserver(resizeLabGraphSurfaces).observe($('lab-graph-canvas').parentElement);
+resizeLabGraphSurfaces();
+function animateLabGraph(){requestAnimationFrame(animateLabGraph);if(graphMode==='force'&&labForceGraph){updateLabZoomLabel(labForceCameraDistance());return;}labGraphControls.update();const field=2*Math.tan(THREE.MathUtils.degToRad(labGraphCamera.fov)/2),height=labGraphViewportHeight;labGraphGroup.children.forEach(child=>{if(!child.userData.pixelDiameter)return;const world=child.position.distanceTo(labGraphCamera)*field*child.userData.pixelDiameter/height;child.scale.setScalar(world/.7);});updateLabZoomLabel(labGraphCamera.position.distanceTo(labGraphControls.target));labGraphRenderer.render(labGraphScene,labGraphCamera);}animateLabGraph();
 
 $('lab-prev').onclick=undoGraphMove;$('lab-next').onclick=hintManualMove;$('lab-play-reset').onclick=resetManualExploration;$('lab-play-hint').onclick=hintManualMove;
 document.querySelectorAll('[data-lab-move]').forEach(button=>button.onclick=()=>{if(playSelectedBlock==null)setStatus('limit','请先选择一个编号块');else manualMove(playSelectedBlock,button.dataset.labMove);});

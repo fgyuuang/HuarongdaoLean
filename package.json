@@ -8,6 +8,7 @@
     "export:mirror": "lake exe export-graph frontend/graph.mirror.json mirror",
     "layout": "node scripts/import-reference-layout.mjs",
     "analyze": "python scripts/analyze-state-space.py frontend/graph.json",
+    "analyze:symmetry": "node scripts/analyze-shortest-path-symmetry.mjs",
     "serve": "node scripts/serve.mjs",
     "check:generic": "node scripts/check-generic.mjs",
     "check:layout": "node scripts/check-layout.mjs",
