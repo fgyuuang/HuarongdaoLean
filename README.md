@@ -70,6 +70,16 @@ verified_search_implies_exists :
 verified_search_exhibits_reachable_goal :
   result.verified spec = true →
     ∃ target, Reachable spec spec.initial target ∧ goalMatches spec target = true
+
+StateGraph.checkClosedGraph_sound :
+  graph.checkClosedGraph spec = true →
+  ∀ state, Reachable spec spec.initial state →
+    state ∈ graph.states.toList
+
+shortest_of_verified_path_and_lower_bound :
+  VerifiedPath spec actions →
+  LowerBoundCertificate spec actions.length →
+  IsShortestSolution spec actions
 ```
 
 ### 通用状态图探索
@@ -135,7 +145,9 @@ GraphPath.toReachable :
   GraphPath spec graph source target → Reachable spec source target
 ```
 
-只有 **BFS 图枚举**旨在生成整个可达状态图。`graph.complete = true` 表示本次可执行 BFS 没有触发上限并耗尽队列；`graph.complete = false` 且 `graph.truncated = true` 时，界面显示“资源截断子图”，仍可探索已返回部分，但不能声称目标不可达。A* 在找到目标后停止，只返回 `solution-subgraph`，不能当作全览图。BFS 闭包完备性尚未封装为内核级队列不变量定理。
+只有 **BFS 图枚举**旨在生成整个可达状态图。`graph.complete = true` 表示本次可执行 BFS 没有触发上限并耗尽队列；`graph.complete = false` 且 `graph.truncated = true` 时，界面显示“资源截断子图”，仍可探索已返回部分，但不能声称目标不可达。A* 在找到目标后停止，只返回 `solution-subgraph`，不能当作全览图。
+
+`graph.complete` 仍只是搜索器产生的运行时标记，BFS 队列不变量本身尚未形式证明。新增的 `StateGraph.checkClosedGraph` 不信任该标记，而是重新检查：初态在节点数组中，且数组对每个节点的全部 `legalMoves` 后继封闭。`checkClosedGraph_sound` 随后由 `Reachable` 归纳证明所有可达状态都在数组中。再结合 `checkNoGoal = true`，`no_reachable_goal_of_closed_graph` 可在内核中证明不存在可达目标。
 
 当前通用 BFS 的节点是**编号敏感的精确状态**：两个尺寸相同但编号不同的木块交换位置，默认仍是两个状态。搜索器可以使用由 `shapes + goal.positions` 推导的运行时对称键减少 A* 重复搜索。经典华容道的同形标签商和水平镜像商已经具有无条件的 Lean 路径投影/提升定理；决策骨架层则证明每条带权宏路径都能等成本展开为具体合法路径。任意用户关卡仍需根据其形状与目标约束构造相应等价关系并证明代表无关性，不能直接复用经典关卡的 `S₄ × S₄` 实例。
 
@@ -165,7 +177,9 @@ A* 只改变候选动作的搜索顺序。成功结果仍必须由 `checkSolutio
 - `limit`：达到 `maxStates` 或 `maxDepth`，只能报告“结论未知”；
 - `invalid`：`wellFormed spec = false`。
 
-BFS 与 A* 返回的路径长度是可执行搜索结果。通用路径存在性、图边 checker soundness 和 GraphPath.toReachable 已由 Lean 内核证明；搜索队列的完备性/最短性尚未封装成内核证明，因此 API 明确返回 `shortest.kernelProved = false`。
+BFS 与 A* 返回的路径长度首先是可执行搜索结果。通用路径存在性、图边 checker soundness、`GraphPath.toReachable` 和独立有限节点集闭包 checker 已由 Lean 内核证明；搜索队列本身的完备性和 A* 最优性仍未封装成内核证明，因此 API 继续返回 `shortest.kernelProved = false`。
+
+通用最短性现在具有独立的证明接口。`LowerBoundCertificate spec L` 提供势函数 `rank`，证明初态势为零、每个合法动作至多把势增加一、每个目标状态的势至少为 `L`。若一条已由 `checkSolution` 重放的路径恰有 `L` 步，`shortest_of_verified_path_and_lower_bound` 证明它不长于任何其他可执行解。搜索器负责提供上界，证书负责提供下界，两者不要求信任 A* 的堆顺序。
 
 ## Lean 与前端的数据链
 
@@ -287,6 +301,7 @@ npm run serve
 - `Huarongdao/Generic/Transition.lean`：通用 Step、Reachable 及保持性
 - `Huarongdao/Generic/Search.lean`：有资源上限的精确 BFS、StateGraph、GraphPath 与边 checker
 - `Huarongdao/Generic/Verification.lean`：搜索成功到可达目标及解存在的最终证明链
+- `Huarongdao/Generic/Certificates.lean`：有限状态集闭包 checker、不可达证书、势函数下界与通用最短性定理
 - `Huarongdao/Generic/Examples.lean`：非华容道 3×2 内核回归实例
 - `GenericMain.lean`：通用 Lean 求解器 JSON 输出程序
 - `frontend/laboratory.js`：关卡编辑、API、回放和证明链

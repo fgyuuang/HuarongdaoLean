@@ -37,6 +37,8 @@ const stateSpace = {
 - `edges` 保留方向和动作标签。布局计算时只把它们视为无向连接，不改变原始转换语义。
 - `startId` 可选，默认第一个节点。
 - `distance` 可选，缺少时从 `startId` 计算无向 BFS 距离。
+- 也可以只提供 `states`：字符串或数字状态直接作为节点 ID；对象状态默认使用数组下标作为 ID。
+- 不在 `startId` 连通分量中的节点距离记为 `-1`，不会被误报为起点距离 `0`。
 
 华容道可以额外提供 `board`、`shapes` 和每个节点的 `positions`，用于检测棋盘镜像。普通状态机不需要这些字段。
 
@@ -116,6 +118,38 @@ const visual = buildVisualStateSpace(stateSpace, {
   meta
 });
 ```
+
+对于 Lean `StateGraph` 或 API 返回的图，可以直接调用：
+
+```js
+import { computeVisualStateGraph } from './state-space-visualization.js';
+
+const visual = computeVisualStateGraph({
+  meta: { initial: 0 },
+  states: leanStates,
+  distance: bfsDistances,
+  edges: checkedEdges
+});
+```
+
+浏览器页面应优先使用 Worker 异步版本：
+
+```js
+import { computeVisualStateGraphAsync } from './state-space-visualization.js';
+
+const visual = await computeVisualStateGraphAsync(leanStateGraph, {}, {
+  onProgress: ({ phase, ratio }) => {
+    console.log(phase, ratio);
+  }
+});
+```
+
+返回的 `visual` 已经可以直接交给渲染器；布局计算不会阻塞页面主线程。
+
+适配器会把 `states + distance + edges` 转换为通用输入；Lean 状态中的位置数组
+`[[x, y], ...]` 会转换为布局器使用的 `{ x, y }`。这一步只做数据适配，不重新实现
+合法移动规则。Worker 的异常、消息解码失败或坐标数量不匹配都会使 Promise 拒绝，
+不会返回半成品状态空间。
 
 `visual.nodes` 中每个节点具有：
 

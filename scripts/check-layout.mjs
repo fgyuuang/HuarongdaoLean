@@ -4,7 +4,10 @@ import { dirname, join } from 'node:path';
 import { computeStructuralLayout } from '../frontend/structural-layout-worker.js';
 import {
   buildVisualStateSpace,
-  createNodeClickHandler
+  createNodeClickHandler,
+  computeVisualStateGraph,
+  stateGraphToLayoutInput,
+  computeVisualStateGraphAsync
 } from '../frontend/state-space-visualization.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -135,6 +138,87 @@ if (clicked?.id !== 'start' || clicked.outgoing.length !== 2 ||
     visual.startId !== 'goal') {
   throw new Error('labelled-generic-graph: click interaction contract changed');
 }
+const leanShapeGraph = {
+  meta: { initial: 0 },
+  states: [
+    { positions: [[0, 0]] },
+    { positions: [[1, 0]] },
+    { positions: [[1, 1]] }
+  ],
+  distance: [0, 1, 2],
+  edges: [
+    { source: 0, target: 1, action: 'right' },
+    { source: 1, target: 2, action: 'down' }
+  ]
+};
+const normalized = stateGraphToLayoutInput(leanShapeGraph);
+const leanVisual = computeVisualStateGraph(leanShapeGraph);
+if (normalized.nodes[1].positions[0].x !== 1 ||
+    leanVisual.nodes[2].distance !== 2 ||
+    leanVisual.interaction(2).incoming.length !== 1) {
+  throw new Error('state-graph adapter contract changed');
+}
+const primitiveStateGraph = {
+  initial: 'a',
+  states: ['a', 'b', 'isolated'],
+  distances: [0, 1, -1],
+  links: [
+    { source: 'a', target: 'b', action: 'step' }
+  ]
+};
+const primitiveVisual = computeVisualStateGraph(primitiveStateGraph);
+if (primitiveVisual.nodes[2].raw.state !== 'isolated' ||
+    primitiveVisual.nodes[2].distance !== -1 ||
+    primitiveVisual.nodes[1].id !== 'b') {
+  throw new Error('state-graph primitive/disconnected normalization changed');
+}
+let unknownStartRejected = false;
+try {
+  computeVisualStateGraph({ nodes: [{ id: 'only' }], startId: 'missing' });
+} catch {
+  unknownStartRejected = true;
+}
+if (!unknownStartRejected) throw new Error('unknown state-space start id was accepted');
+let asyncWorkerMessage;
+const fakeWorker = {
+  postMessage(input) {
+    const result = computeStructuralLayout(input);
+    queueMicrotask(() => {
+      this.onmessage({
+        data: {
+          type: 'result',
+          coordinates: result.coordinates.buffer,
+          meta: result.meta
+        }
+      });
+    });
+  },
+  terminate() {}
+};
+const asyncVisual = await computeVisualStateGraphAsync(leanShapeGraph, {}, {
+  workerFactory: () => fakeWorker,
+  onProgress: detail => { asyncWorkerMessage = detail; }
+});
+if (asyncVisual.nodes.length !== 3 || asyncVisual.nodes[2].x === undefined ||
+    asyncWorkerMessage !== undefined) {
+  throw new Error('async state-graph adapter contract changed');
+}
+let malformedAsyncRejected = false;
+try {
+  await computeVisualStateGraphAsync(leanShapeGraph, {}, {
+    workerFactory: () => ({
+      postMessage() {
+        queueMicrotask(() => {
+          this.onmessage({ data: { type: 'result', coordinates: new Float32Array(1).buffer } });
+        });
+      },
+      terminate() {}
+    })
+  });
+} catch {
+  malformedAsyncRejected = true;
+}
+if (!malformedAsyncRejected) throw new Error('malformed async layout was accepted');
 
 console.log(
   `layout: ok (tiny ${tiny.meta.nodeCount}, gate ${gate.meta.nodeCount}, ` +

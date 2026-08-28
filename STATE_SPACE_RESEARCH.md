@@ -230,6 +230,62 @@ structure PuzzleSpec where
 
 不要一开始给有限状态集合套普通点集拓扑。有限离散拓扑的开闭集理论通常平凡；视频中真正有内容的“拓扑”来自图的路径与环，以及独立移动生成的方形/立方复形。
 
+### 4.1 完整状态集的闭包证书
+
+不能把搜索器返回的 `complete = true` 直接当作定理。项目现在定义：
+
+```lean
+def StateGraph.checkClosedGraph (spec : PuzzleSpec) (graph : StateGraph) : Bool
+
+theorem StateGraph.checkClosedGraph_sound
+    (checked : graph.checkClosedGraph spec = true) :
+    ∀ state, Reachable spec spec.initial state →
+      state ∈ graph.states.toList
+```
+
+checker 重新验证两件事：
+
+1. `initial` 位于有限节点数组；
+2. 数组中任意状态的每个 `legalMoves` 后继仍位于该数组。
+
+第二项给出对一步移动的封闭性。对 `Reachable` 的路径长度归纳随后证明：从初态出发无论走多少步，都不可能离开这个有限节点集。因此该定理证明的是“没有遗漏可达状态”，而不是“BFS 程序看起来已经停止”。节点数组可以包含额外状态；若要证明它恰好等于可达集，还需反向证明数组中每个节点均可达。
+
+若同时检查节点数组中没有目标：
+
+```lean
+theorem StateGraph.no_reachable_goal_of_closed_graph
+    (closed : graph.checkClosedGraph spec = true)
+    (noGoal : graph.checkNoGoal spec = true) :
+    ¬ ∃ state, Reachable spec spec.initial state ∧
+      goalMatches spec state = true
+```
+
+就得到内核级不可达证书。
+
+### 4.2 上界、下界与最短性
+
+一条搜索路径只给出最优值的上界。例如 A* 找到长度 `L` 的合法解，只能推出“最短长度不超过 `L`”。全局最短性还需要下界：
+
+```lean
+structure LowerBoundCertificate (spec : PuzzleSpec) (bound : Nat) where
+  rank : State → Nat
+  startRank : rank spec.initial = 0
+  stepRank : tryMove spec source action.block action.direction = some target →
+    rank target ≤ rank source + 1
+  goalRank : goalMatches spec target = true → bound ≤ rank target
+```
+
+沿任意长度为 `n` 的合法路径反复使用 `stepRank`，得到终点势至多为 `n`。目标势又至少为 `bound`，因此任何解都有 `bound ≤ n`。最终合并定理为：
+
+```lean
+theorem shortest_of_verified_path_and_lower_bound
+    (verified : VerifiedPath spec actions)
+    (certificate : LowerBoundCertificate spec actions.length) :
+    IsShortestSolution spec actions
+```
+
+`VerifiedPath` 通过 `checkSolution` 给出长度相同的合法解，即上界；`LowerBoundCertificate` 给出相同数值的下界。上下界相等后，Lean 才允许声明全局最短。这种接口可以接收 A*、BFS、SAT/SMT 或外部程序产生的候选路径，而不需要信任搜索器本身。
+
 ## 5. 三种不同的商
 
 ### 5.1 同形标签商

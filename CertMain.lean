@@ -5,7 +5,10 @@ open Huarongdao
 def main : IO UInt32 := do
   IO.println "Building quotient graph certificate in Lean..."
   let graph := enumerate classic
+  let mirrorGraph := enumerateMirror
   IO.println s!"states={graph.states.size}, edges={graph.edges.size}"
+  IO.println
+    s!"mirror states={mirrorGraph.states.size}, edges={mirrorGraph.edges.size}"
   let edgeSound := checkEdges graph
   let closed := checkClosedFast graph
   let unique := checkUniqueKeys graph
@@ -13,6 +16,13 @@ def main : IO UInt32 := do
   let lower116 := checkGoalLowerBound graph 116
   let goal116 := checkGoalAt graph 116
   let kernelReady := checkQuotientLowerBound graph classic 116
+  let mirrorEdgeSound := checkMirrorEdges mirrorGraph
+  let mirrorValid := checkMirrorValidStates mirrorGraph
+  let mirrorClosed := checkMirrorClosed mirrorGraph
+  let mirrorLower116 :=
+    checkMirrorGoalLowerBound mirrorGraph 116
+  let mirrorKernelReady :=
+    checkMirrorQuotientLowerBound mirrorGraph classic 116
   IO.println s!"all quotient edges sound: {edgeSound}"
   IO.println s!"all legal successors represented: {closed}"
   IO.println s!"canonical representatives unique: {unique}"
@@ -20,8 +30,16 @@ def main : IO UInt32 := do
   IO.println s!"all goals have distance >= 116: {lower116}"
   IO.println s!"a goal exists at distance 116: {goal116}"
   IO.println s!"kernel certificate conditions valid: {kernelReady}"
+  IO.println s!"all mirror quotient edges sound: {mirrorEdgeSound}"
+  IO.println s!"all mirror representatives valid: {mirrorValid}"
+  IO.println s!"all mirror successors represented: {mirrorClosed}"
+  IO.println s!"all mirror goals have distance >= 116: {mirrorLower116}"
+  IO.println
+    s!"mirror kernel certificate conditions valid: {mirrorKernelReady}"
   return if edgeSound && closed && unique && distances &&
-      lower116 && goal116 && kernelReady then
+      lower116 && goal116 && kernelReady &&
+      mirrorEdgeSound && mirrorValid && mirrorClosed &&
+      mirrorLower116 && mirrorKernelReady then
     0
   else
     1

@@ -2,7 +2,11 @@ import Huarongdao.Transition
 
 namespace Huarongdao
 
-/-- A proof-carrying path: every constructor stores one checked move. -/
+/--
+A domain-specific compatibility path: every constructor stores one checked
+move. `StateSpace.classicWalkOfPath` identifies it with the canonical
+`StateSpace.Task.Walk` semantics.
+-/
 inductive Path : State → State → Type where
   | nil (s : State) : Path s s
   | cons {s u t : State} (action : Action)
@@ -55,7 +59,10 @@ theorem target_valid (path : Path s t) (hs : ValidState s) : ValidState t :=
 
 end Path
 
-/-- Completing the puzzle is literally an inhabitant carrying a path and goal proof. -/
+/--
+The compatibility solution object used by classic certificates. It is
+equivalent to `StateSpace.classicTask.Solution`.
+-/
 structure Solution (start : State) where
   target : State
   path : Path start target

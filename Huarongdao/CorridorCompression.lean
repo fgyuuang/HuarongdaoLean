@@ -52,6 +52,51 @@ structure UniqueForward
       candidate = next
 
 /--
+At a suppressed degree-two node, a reversible incoming edge and a distinct
+outgoing edge determine the outgoing edge uniquely.
+-/
+theorem uniqueForward_of_not_anchor
+    {previous current next : MirrorShapeState}
+    (current_not_anchor : ¬ CorridorAnchor current)
+    (reverse : MirrorShapeStep current previous)
+    (forward : MirrorShapeStep current next)
+    (distinct : next ≠ previous) :
+    UniqueForward previous current next := by
+  have interior : CorridorInterior current :=
+    Classical.byContradiction fun notInterior =>
+      current_not_anchor (Or.inr (Or.inr notInterior))
+  rcases interior with
+    ⟨left, right, _left_ne_right, _leftStep, _rightStep, complete⟩
+  refine ⟨distinct, forward, ?_⟩
+  intro candidate candidateStep candidate_ne_previous
+  have previous_cases := complete previous reverse
+  have next_cases := complete next forward
+  have candidate_cases := complete candidate candidateStep
+  rcases previous_cases with previous_eq_left | previous_eq_right
+  · have next_eq_right : next = right := by
+      rcases next_cases with next_eq_left | next_eq_right
+      · exact (distinct (next_eq_left.trans previous_eq_left.symm)).elim
+      · exact next_eq_right
+    have candidate_eq_right : candidate = right := by
+      rcases candidate_cases with candidate_eq_left | candidate_eq_right
+      · exact
+          (candidate_ne_previous
+            (candidate_eq_left.trans previous_eq_left.symm)).elim
+      · exact candidate_eq_right
+    exact candidate_eq_right.trans next_eq_right.symm
+  · have next_eq_left : next = left := by
+      rcases next_cases with next_eq_left | next_eq_right
+      · exact next_eq_left
+      · exact (distinct (next_eq_right.trans previous_eq_right.symm)).elim
+    have candidate_eq_left : candidate = left := by
+      rcases candidate_cases with candidate_eq_left | candidate_eq_right
+      · exact candidate_eq_left
+      · exact
+          (candidate_ne_previous
+            (candidate_eq_right.trans previous_eq_right.symm)).elim
+    exact candidate_eq_left.trans next_eq_left.symm
+
+/--
 The proof-carrying remainder of one forced corridor. `next` may only pass
 through nodes that are not anchors, so an anchor always terminates the macro.
 -/
@@ -97,6 +142,58 @@ def toWalk :
 end ForcedTail
 
 /--
+Evidence that a concrete mirror-quotient walk is the reduced remainder of one
+corridor segment. Every suppressed current node is non-anchor, the edge used
+to enter it is reversible, and the next node is not an immediate return to the
+previous node.
+
+Reversibility is stated locally instead of being assumed globally for
+`MirrorShapeStep`. This is exactly the hypothesis needed to turn degree two
+into a unique forward choice.
+-/
+inductive ReducedCorridorTail :
+    (previous : MirrorShapeState) →
+      {current target : MirrorShapeState} →
+      MirrorShapeWalk current target → Type where
+  | stop (current : MirrorShapeState) :
+      ReducedCorridorTail previous (.nil current)
+  | next {current next target : MirrorShapeState}
+      {tail : MirrorShapeWalk next target}
+      (current_not_anchor : ¬ CorridorAnchor current)
+      (reverse : MirrorShapeStep current previous)
+      (forward : MirrorShapeStep current next)
+      (distinct : next ≠ previous)
+      (rest : ReducedCorridorTail current tail) :
+      ReducedCorridorTail previous (.cons () forward tail)
+
+namespace ReducedCorridorTail
+
+/-- Convert the local reduced-walk evidence into the existing forced-tail form. -/
+def toForcedTail :
+    {previous current target : MirrorShapeState} →
+    {walk : MirrorShapeWalk current target} →
+      ReducedCorridorTail previous walk →
+      ForcedTail previous current target
+  | _, _, _, _, .stop _ => .stop _ _
+  | _, _, _, _, .next current_not_anchor reverse forward distinct rest =>
+      .next current_not_anchor
+        (uniqueForward_of_not_anchor
+          current_not_anchor reverse forward distinct)
+        (toForcedTail rest)
+
+/-- Conversion retains the exact mirror-quotient walk, not only its length. -/
+@[simp] theorem toForcedTail_toWalk
+    {walk : MirrorShapeWalk current target}
+    (reduced : ReducedCorridorTail previous walk) :
+    reduced.toForcedTail.toWalk = walk := by
+  induction reduced with
+  | stop => rfl
+  | next current_not_anchor reverse forward distinct rest ih =>
+      simp [toForcedTail, ForcedTail.toWalk, ih]
+
+end ReducedCorridorTail
+
+/--
 One macro transition between retained corridor anchors. The first edge and
 every suppressed intermediate edge remain available as a formal walk.
 -/
@@ -136,6 +233,81 @@ def ofStep (step : MirrorShapeStep source.1 target.1) :
 end CorridorMacroStep
 
 /--
+A reduced concrete segment between two retained anchors. The first edge is
+stored separately because the reduced-tail condition only applies after the
+walk has entered a possible corridor interior.
+-/
+structure ReducedCorridorSegment (source target : CorridorState) where
+  firstNode : MirrorShapeState
+  first : MirrorShapeStep source.1 firstNode
+  tailWalk : MirrorShapeWalk firstNode target.1
+  reduced : ReducedCorridorTail source.1 tailWalk
+
+namespace ReducedCorridorSegment
+
+/-- The original mirror-quotient walk represented by a reduced segment. -/
+def toWalk (segment : ReducedCorridorSegment source target) :
+    MirrorShapeWalk source.1 target.1 :=
+  .cons () segment.first segment.tailWalk
+
+/-- Every reduced reversible segment determines a forced corridor macro. -/
+def toMacroStep (segment : ReducedCorridorSegment source target) :
+    CorridorMacroStep source target where
+  firstNode := segment.firstNode
+  first := segment.first
+  tail := segment.reduced.toForcedTail
+
+/-- Segment conversion preserves the complete underlying walk. -/
+@[simp] theorem toMacroStep_toWalk
+    (segment : ReducedCorridorSegment source target) :
+    segment.toMacroStep.toWalk = segment.toWalk := by
+  simp [toMacroStep, CorridorMacroStep.toWalk, toWalk]
+
+/-- Segment conversion preserves primitive transition count. -/
+@[simp] theorem toMacroStep_weight
+    (segment : ReducedCorridorSegment source target) :
+    segment.toMacroStep.weight = segment.toWalk.length := by
+  simp [CorridorMacroStep.weight]
+
+end ReducedCorridorSegment
+
+/--
+A segmentation of a mirror-quotient walk at retained anchors. Each constituent
+segment satisfies exactly the local reversibility and no-immediate-backtrack
+hypotheses required by `ReducedCorridorSegment`.
+-/
+inductive CorridorSegmentation : CorridorState → CorridorState → Type where
+  | nil (state : CorridorState) :
+      CorridorSegmentation state state
+  | cons {source middle target : CorridorState}
+      (first : ReducedCorridorSegment source middle)
+      (rest : CorridorSegmentation middle target) :
+      CorridorSegmentation source target
+
+namespace CorridorSegmentation
+
+/-- Reassemble all concrete segments into one mirror-quotient walk. -/
+def toMirrorWalk :
+    {source target : CorridorState} →
+      CorridorSegmentation source target →
+      MirrorShapeWalk source.1 target.1
+  | _, _, .nil state => .nil state.1
+  | _, _, .cons first rest =>
+      appendMirrorShapeWalk first.toWalk (toMirrorWalk rest)
+
+end CorridorSegmentation
+
+/--
+Evidence that a given mirror-quotient walk admits the exact reduced anchor
+segmentation required by corridor compression.
+-/
+structure CorridorSegmentationOf
+    {source target : CorridorState}
+    (walk : MirrorShapeWalk source.1 target.1) where
+  segmentation : CorridorSegmentation source target
+  realizes : segmentation.toMirrorWalk = walk
+
+/--
 The independent corridor-compressed task. Its actions are primitive-step
 weights, while its transition relation requires a proof-carrying macro.
 -/
@@ -153,6 +325,71 @@ theorem corridorStep_of_mirrorStep
   change ∃ segment : CorridorMacroStep source target, segment.weight = 1
   exact ⟨CorridorMacroStep.ofStep step,
     CorridorMacroStep.weight_ofStep step⟩
+
+/-- Primitive cost of a corridor walk, obtained by summing its macro weights. -/
+def corridorWalkCost
+    (walk : corridorTask.Walk source target) : Nat :=
+  walk.actions.sum
+
+namespace CorridorSegmentation
+
+/--
+Compress an explicitly segmented reduced mirror walk into the weighted
+corridor task.
+-/
+def toCorridorWalk :
+    {source target : CorridorState} →
+      CorridorSegmentation source target →
+      corridorTask.Walk source target
+  | _, _, .nil state => .nil state
+  | _, _, .cons first rest =>
+      let macroStep := first.toMacroStep
+      .cons macroStep.weight ⟨macroStep, rfl⟩ (toCorridorWalk rest)
+
+/-- Compression preserves primitive cost across every segment. -/
+theorem toCorridorWalk_cost
+    (segmentation : CorridorSegmentation source target) :
+    corridorWalkCost segmentation.toCorridorWalk =
+      segmentation.toMirrorWalk.length := by
+  induction segmentation with
+  | nil => rfl
+  | cons first rest ih =>
+      simp only [toCorridorWalk, corridorWalkCost, toMirrorWalk,
+        appendMirrorShapeWalk_length]
+      change
+        first.toMacroStep.weight +
+            rest.toCorridorWalk.actions.sum =
+          first.toWalk.length + rest.toMirrorWalk.length
+      have restCost :
+          rest.toCorridorWalk.actions.sum =
+            rest.toMirrorWalk.length := by
+        simpa [corridorWalkCost] using ih
+      calc
+        first.toMacroStep.weight +
+              rest.toCorridorWalk.actions.sum =
+            first.toWalk.length +
+              rest.toCorridorWalk.actions.sum :=
+          congrArg
+            (fun weight => weight + rest.toCorridorWalk.actions.sum)
+            (ReducedCorridorSegment.toMacroStep_weight first)
+        _ = first.toWalk.length + rest.toMirrorWalk.length :=
+          congrArg (fun cost => first.toWalk.length + cost) restCost
+
+end CorridorSegmentation
+
+/--
+Compression completeness for precisely segmented reduced walks. The theorem
+does not cover arbitrary walks with immediate backtracking inside a corridor:
+such a walk cannot be represented by a single forced macro with the same
+primitive cost.
+-/
+theorem corridorWalk_compressWithCost
+    (walk : MirrorShapeWalk source.1 target.1)
+    (segmented : CorridorSegmentationOf walk) :
+    ∃ compressed : corridorTask.Walk source target,
+      corridorWalkCost compressed = walk.length := by
+  refine ⟨segmented.segmentation.toCorridorWalk, ?_⟩
+  rw [CorridorSegmentation.toCorridorWalk_cost, segmented.realizes]
 
 /-- Extract the proof-carrying macro represented by one corridor-task edge. -/
 noncomputable def corridorStepSegment
@@ -212,6 +449,21 @@ theorem corridorWalkExpand_length
       rw [corridorWalkExpand, appendMirrorShapeWalk_length,
         chosenWalkLength, ih]
       rfl
+
+/--
+The expansion of a compressed reduced walk has the same primitive length as
+the original mirror-quotient walk.
+-/
+theorem corridorWalk_compress_expand_length
+    (walk : MirrorShapeWalk source.1 target.1)
+    (segmented : CorridorSegmentationOf walk) :
+    ∃ compressed : corridorTask.Walk source target,
+      (corridorWalkExpand compressed).length = walk.length := by
+  rcases corridorWalk_compressWithCost walk segmented with
+    ⟨compressed, cost_eq⟩
+  refine ⟨compressed, ?_⟩
+  rw [corridorWalkExpand_length]
+  exact cost_eq
 
 /--
 Every corridor walk lifts through the mirror quotient to an equal-cost walk
