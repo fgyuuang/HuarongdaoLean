@@ -15,5 +15,6 @@ import Huarongdao.StateSpaceBfs
 import Huarongdao.Minimality
 import Huarongdao.ProofGame
 import Huarongdao.Bottleneck
+import Huarongdao.CaoGuanGeometry
 import Huarongdao.LocalTopology
 import Huarongdao.Generic
