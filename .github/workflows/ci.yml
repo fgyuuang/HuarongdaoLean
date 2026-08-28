@@ -91,6 +91,17 @@ jobs:
           test: false
           lint: false
 
+      - name: Expose Lean tools to following steps
+        shell: pwsh
+        run: |
+          $elanBin = Join-Path $env:USERPROFILE '.elan\bin'
+          $lake = Join-Path $elanBin 'lake.exe'
+          if (-not (Test-Path -LiteralPath $lake)) {
+            throw "Lean Lake was not installed at '$lake'."
+          }
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $elanBin
+          & $lake --version
+
       - name: Generate ignored classic graph
         run: npm run export
 
