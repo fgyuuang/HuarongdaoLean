@@ -20,6 +20,21 @@ def puzzleSimpleGraph (spec : PuzzleSpec) :
     intro state step
     exact step_irrefl spec state.1 step⟩
 
+/-- Mathlib can compute adjacency because `legalMoves` is a finite, complete
+    enumeration of every primitive action that can succeed from a state. -/
+instance puzzleSimpleGraphDecidableAdj (spec : PuzzleSpec) :
+    DecidableRel (puzzleSimpleGraph spec).Adj :=
+  fun source target =>
+    decidable_of_iff
+      (∃ move ∈ legalMoves spec source.1, move.2 = target.1) <| by
+        constructor
+        · rintro ⟨⟨action, next⟩, member, nextEq⟩
+          change next = target.1 at nextEq
+          subst next
+          exact ⟨action, legalMoves_sound member⟩
+        · rintro ⟨action, executed⟩
+          exact ⟨(action, target.1), legalMoves_complete executed, rfl⟩
+
 namespace Path
 
 /-- Forget action labels in a certified puzzle path and obtain a mathlib walk.

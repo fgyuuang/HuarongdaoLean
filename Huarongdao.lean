@@ -8,6 +8,9 @@ import Huarongdao.MathlibSymmetry
 import Huarongdao.Search
 import Huarongdao.ClassicCertificate
 import Huarongdao.ClassicLocalTopology
+import Huarongdao.SymmetryShortestPath
+import Huarongdao.StateSpaceAnalysis
+import Huarongdao.StateSpaceBfs
 import Huarongdao.Minimality
 import Huarongdao.ProofGame
 import Huarongdao.Bottleneck

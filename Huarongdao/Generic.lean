@@ -6,4 +6,5 @@ import Huarongdao.Generic.Verification
 import Huarongdao.Generic.Certificates
 import Huarongdao.Generic.Reversibility
 import Huarongdao.Generic.MathlibGraph
+import Huarongdao.Generic.FiniteMathlibGraph
 import Huarongdao.Generic.Examples
