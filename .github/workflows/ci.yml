@@ -1,0 +1,98 @@
+name: Required checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: required-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard-main:
+    name: Main pull-request audit
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify main was updated through a merged pull request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let pullRequests = [];
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              pullRequests = await github.paginate(
+                github.rest.repos.listPullRequestsAssociatedWithCommit,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  commit_sha: context.sha
+                }
+              );
+              if (pullRequests.length > 0) break;
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+            const mergedToMain = pullRequests.some(
+              pullRequest =>
+                pullRequest.merged_at &&
+                pullRequest.base.ref === 'main'
+            );
+
+            if (!mergedToMain) {
+              core.setFailed(
+                `main commit ${context.sha} is not associated with a merged pull request.`
+              );
+            }
+
+  verify:
+    name: Lean and state-space verification
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      LEAN_NUM_THREADS: '2'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check branch naming
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          if ($env:HEAD_BRANCH -notmatch '^(feature|fix|research|docs|chore|wip)/[A-Za-z0-9._-]+$') {
+            throw "Branch '$env:HEAD_BRANCH' does not follow COLLABORATION.md."
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Set up Lean and build
+        uses: leanprover/lean-action@v1
+        with:
+          build: true
+          test: false
+          lint: false
+
+      - name: Generate ignored classic graph
+        run: npm run export
+
+      - name: Run project verification
+        run: npm run check
