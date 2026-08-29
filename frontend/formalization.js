@@ -4,6 +4,7 @@ import {
   formalizationStats,
   modelFormalization,
   kernelComponents,
+  researchContinuations,
   sourceFiles,
   theoremDependencyEdges,
   theoremById,
@@ -105,6 +106,8 @@ const theoremGraphPositions = {
   concreteWalk_projectsToMirror: { x: 268, y: 362 },
   shortest_of_verified_path_and_lower_bound: { x: 504, y: 362 },
   corridorWalk_liftToConcreteWithCost: { x: 740, y: 362 },
+  classic_solution_uses_guanYu_yield: { x: 268, y: 522 },
+  classic_shortest_path_not_unique: { x: 740, y: 522 },
   classic116Play_minimal: { x: 504, y: 522 }
 };
 
@@ -176,7 +179,7 @@ function theoremDependencyGraph() {
           <div class="theorem-graph-lane lane-foundation">基础语义与几何</div>
           <div class="theorem-graph-lane lane-bridge">可达性、商与证书</div>
           <div class="theorem-graph-lane lane-result">大结论</div>
-          <svg class="theorem-graph-svg" viewBox="0 0 1080 680" role="img" aria-label="13 条 Lean 定理的有向依赖图">
+          <svg class="theorem-graph-svg" viewBox="0 0 1080 680" role="img" aria-label="${theoremRecords.length} 条 Lean 定理的有向依赖图">
             <defs><marker id="theorem-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>
             ${theoremDependencyEdges.map(edge => theoremGraphPath(edge, recordsById)).join('')}
           </svg>
@@ -216,17 +219,32 @@ function modelFormalizationSection() {
   </section>`;
 }
 
+function researchContinuationSection() {
+  return `<section class="formal-section research-continuation-section" data-formal-section="research-after-shortest">
+    <header class="formal-section-heading">
+      <div><span class="section-kicker">AFTER SHORTEST PATH</span><h2>116 步之后，项目继续研究什么</h2><p class="section-subtitle">最短性给出一个闭合结论，但它只回答“最少需要多少步”。状态空间里还有商结构、分量、局部几何和不同最短解之间的关系。</p></div>
+      <button class="text-action" data-formal-view="chain">查看依赖图 ↗</button>
+    </header>
+    <div class="research-continuation-grid">${researchContinuations.map((item, index) => `
+      <article class="research-continuation-item">
+        <span>${String(index + 1).padStart(2, '0')}</span>
+        <div><h3>${item.title}</h3><code>${item.lean}</code><p>${item.detail}</p></div>
+      </article>`).join('')}</div>
+  </section>`;
+}
+
 function overviewView() {
   return `${metricMarkup()}
     <section class="formal-summary-banner">
       <div class="summary-seal">∴</div>
       <div><span class="section-kicker">CURRENT FORMALIZATION RESULT</span>
-        <h2>经典最短性已闭合，全空间基数桥已成型</h2>
-        <p><code>classic116Play_minimal</code> 已把 116 步通关与完整有限图下界连接起来；全形状空间已经得到 65,880 个候选布局、898 个 DFS 分量和通向 <code>ContinuousClass</code> 的条件语义接口。</p>
+        <h2>116 步最短性已闭合，研究没有停在终点</h2>
+        <p><code>classic116Play_minimal</code> 把一条 116 步通关路径和完整商图下界接在一起。随后，项目继续研究同形商、镜像商、898 个 DFS 分量、关羽让路和最短路环岛；这些结论的证据类型并不相同，页面会逐项标明。</p>
       </div>
       <button class="inline-action" data-formal-view="theorems">查看大定理 <span>→</span></button>
     </section>
     ${modelFormalizationSection()}
+    ${researchContinuationSection()}
     <section class="formal-section" data-formal-section="overview">
       <header class="formal-section-heading"><div><span class="section-kicker">MATHEMATICAL MODEL → KERNEL OBJECTS</span><h2>形式化主链</h2></div><button class="text-action" data-formal-view="chain">展开依赖图 ↗</button></header>
       <div class="stage-rail">${formalStages.map(stage => stageCard(stage)).join('')}</div>
@@ -252,10 +270,10 @@ function chainView() {
   return `${metricMarkup()}
     <section class="formal-summary-banner chain-banner">
       <div class="summary-seal">→</div>
-      <div><span class="section-kicker">DEPENDENCY READING</span><h2>一条路径怎样变成一个 Lean 定理？</h2><p>从状态定义开始，先得到合法动作，再构造路径和可达性。商空间需要路径提升，有限搜索则要经过 checker 和 soundness 定理才能进入最终结论。</p></div>
+      <div><span class="section-kicker">DEPENDENCY READING</span><h2>一条路径怎样变成一个 Lean 定理？</h2><p>从状态定义开始，先得到合法动作，再构造路径和可达性。商空间需要路径提升，有限搜索则要经过 checker 和 soundness 定理。116 步最短性闭合后，依赖图还会继续分叉到关羽让路、连续等价类和最短路拓扑。</p></div>
     </section>
     <section class="formal-section" data-formal-section="proof-chain">
-      <header class="formal-section-heading"><div><span class="section-kicker">PROOF PIPELINE</span><h2>从棋盘到全局最短性</h2></div><span class="legend-note"><i class="dot red"></i>语义 <i class="dot teal"></i>商与图 <i class="dot gold"></i>证书</span></header>
+      <header class="formal-section-heading"><div><span class="section-kicker">PROOF PIPELINE</span><h2>从棋盘到全局结论</h2></div><span class="legend-note"><i class="dot red"></i>语义 <i class="dot teal"></i>商与图 <i class="dot gold"></i>证书</span></header>
       <div class="proof-pipeline">${chain.map((stage, index) => `
         <div class="pipeline-node ${stage.color}" data-stage="${stage.id}">
           <span>${stage.index}</span><b>${stage.title}</b><code>${stage.symbol}</code>
@@ -304,7 +322,7 @@ function theoremView() {
   const record = theoremById(selectedTheorem);
   return `${metricMarkup()}
     <section class="formal-section theorem-atlas" data-formal-section="theorems">
-      <header class="formal-section-heading"><div><span class="section-kicker">THEOREM ATLAS · ${filtered.length} RESULTS</span><h2>定理图谱</h2><p class="section-subtitle">这里列出项目中的 13 条定理。点击一条，可以同时查看 statement、证明链、源码位置和相关结果。</p></div></header>
+      <header class="formal-section-heading"><div><span class="section-kicker">THEOREM ATLAS · ${filtered.length} RESULTS</span><h2>定理图谱</h2><p class="section-subtitle">这里列出项目中的 ${theoremRecords.length} 条定理。点击一条，可以同时查看 statement、证明链、源码位置和相关结果。</p></div></header>
       <div class="evidence-filter">${evidenceLevels.map(level => `<button class="${evidenceFilter === level.id ? 'active' : ''}" data-evidence="${level.id}">${level.label}<small>${level.description}</small></button>`).join('')}</div>
       <div class="theorem-atlas-layout"><aside class="theorem-list">${filtered.map(theoremCard).join('')}</aside><div>${theoremDetail(record)}</div></div>
     </section>`;
@@ -372,11 +390,12 @@ function dashboardView() {
       <div class="summary-seal">∴</div>
       <div><span class="section-kicker">PROJECT SUMMARY</span>
         <h2>先看结论，再看证明怎样接起来</h2>
-        <p><code>classic116Play_minimal</code> 已经闭合了经典华容道 116 步的全局最短性。下面把模型、定理依赖、有限证书、源码和 Lean 内核对象放在同一页，方便顺着一条线阅读。</p>
+        <p><code>classic116Play_minimal</code> 已经闭合了经典华容道 116 步的全局最短性。下面把模型、定理依赖、有限证书、源码和 Lean 内核对象放在同一页；最短性是一个结论，不是项目的终点。</p>
       </div>
       <span class="summary-status">主定理已闭合 · 898 接口保留前提</span>
     </section>
     ${modelFormalizationSection()}
+    ${researchContinuationSection()}
     ${withoutMetrics(chainView())}
     ${withoutMetrics(theoremView())}
     ${withoutMetrics(sourceView())}

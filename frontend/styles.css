@@ -199,3 +199,4 @@ dialog{color:var(--ink)}dialog::backdrop{background:rgba(18,22,19,.62);backdrop-
   .ring-candidate-list li:nth-child(odd){border-right:0}
   .ring-candidate-list li:nth-last-child(2){border-bottom:1px solid var(--line)}
 }
+:root .lab-equivalence-status{display:grid;gap:3px;margin-top:2px;padding:7px 8px;border-left:2px solid var(--amber);background:color-mix(in srgb,var(--amber) 9%,transparent);font-size:9px;line-height:1.45}:root .lab-equivalence-status strong{color:var(--ink);font-size:9px}:root .lab-equivalence-status span{color:var(--muted)}

@@ -1,0 +1,320 @@
+{
+  "generatorVersion": 2,
+  "graphSha256": "1884be41e9259d9f67fb80ad2a08ed3a36411331f13f0003da5ebb320140fea0",
+  "fullSpaceSha256": "4845159f7586de27e0d8e3284397b131f4f45fd67a6f11bb010578ea17d22005",
+  "source": "classic",
+  "componentId": 15,
+  "representativeKey": "0;8;12,13,14,15;6,7,10,11",
+  "quotientTargetId": 9643,
+  "pathLength": 56,
+  "actions": [
+    {
+      "piece": 8,
+      "direction": "right"
+    },
+    {
+      "piece": 4,
+      "direction": "down"
+    },
+    {
+      "piece": 9,
+      "direction": "left"
+    },
+    {
+      "piece": 5,
+      "direction": "down"
+    },
+    {
+      "piece": 1,
+      "direction": "right"
+    },
+    {
+      "piece": 6,
+      "direction": "up"
+    },
+    {
+      "piece": 6,
+      "direction": "left"
+    },
+    {
+      "piece": 1,
+      "direction": "left"
+    },
+    {
+      "piece": 5,
+      "direction": "up"
+    },
+    {
+      "piece": 9,
+      "direction": "right"
+    },
+    {
+      "piece": 8,
+      "direction": "right"
+    },
+    {
+      "piece": 4,
+      "direction": "right"
+    },
+    {
+      "piece": 6,
+      "direction": "down"
+    },
+    {
+      "piece": 2,
+      "direction": "down"
+    },
+    {
+      "piece": 6,
+      "direction": "down"
+    },
+    {
+      "piece": 2,
+      "direction": "down"
+    },
+    {
+      "piece": 0,
+      "direction": "left"
+    },
+    {
+      "piece": 3,
+      "direction": "left"
+    },
+    {
+      "piece": 5,
+      "direction": "up"
+    },
+    {
+      "piece": 5,
+      "direction": "up"
+    },
+    {
+      "piece": 1,
+      "direction": "right"
+    },
+    {
+      "piece": 4,
+      "direction": "up"
+    },
+    {
+      "piece": 6,
+      "direction": "right"
+    },
+    {
+      "piece": 2,
+      "direction": "down"
+    },
+    {
+      "piece": 7,
+      "direction": "right"
+    },
+    {
+      "piece": 8,
+      "direction": "up"
+    },
+    {
+      "piece": 6,
+      "direction": "right"
+    },
+    {
+      "piece": 4,
+      "direction": "down"
+    },
+    {
+      "piece": 1,
+      "direction": "left"
+    },
+    {
+      "piece": 1,
+      "direction": "left"
+    },
+    {
+      "piece": 3,
+      "direction": "down"
+    },
+    {
+      "piece": 7,
+      "direction": "up"
+    },
+    {
+      "piece": 8,
+      "direction": "right"
+    },
+    {
+      "piece": 3,
+      "direction": "down"
+    },
+    {
+      "piece": 5,
+      "direction": "left"
+    },
+    {
+      "piece": 7,
+      "direction": "up"
+    },
+    {
+      "piece": 7,
+      "direction": "up"
+    },
+    {
+      "piece": 8,
+      "direction": "up"
+    },
+    {
+      "piece": 8,
+      "direction": "up"
+    },
+    {
+      "piece": 9,
+      "direction": "up"
+    },
+    {
+      "piece": 6,
+      "direction": "right"
+    },
+    {
+      "piece": 3,
+      "direction": "down"
+    },
+    {
+      "piece": 5,
+      "direction": "down"
+    },
+    {
+      "piece": 7,
+      "direction": "left"
+    },
+    {
+      "piece": 8,
+      "direction": "up"
+    },
+    {
+      "piece": 9,
+      "direction": "up"
+    },
+    {
+      "piece": 6,
+      "direction": "up"
+    },
+    {
+      "piece": 9,
+      "direction": "up"
+    },
+    {
+      "piece": 6,
+      "direction": "up"
+    },
+    {
+      "piece": 3,
+      "direction": "right"
+    },
+    {
+      "piece": 5,
+      "direction": "down"
+    },
+    {
+      "piece": 5,
+      "direction": "down"
+    },
+    {
+      "piece": 6,
+      "direction": "left"
+    },
+    {
+      "piece": 7,
+      "direction": "down"
+    },
+    {
+      "piece": 9,
+      "direction": "down"
+    },
+    {
+      "piece": 8,
+      "direction": "down"
+    }
+  ],
+  "targetPositions": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      2
+    ],
+    [
+      0,
+      3
+    ],
+    [
+      3,
+      3
+    ],
+    [
+      1,
+      3
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      2,
+      2
+    ],
+    [
+      2,
+      1
+    ],
+    [
+      3,
+      1
+    ],
+    [
+      3,
+      2
+    ]
+  ],
+  "representativePositions": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      2
+    ],
+    [
+      0,
+      3
+    ],
+    [
+      1,
+      3
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      3,
+      3
+    ],
+    [
+      2,
+      1
+    ],
+    [
+      3,
+      1
+    ],
+    [
+      2,
+      2
+    ],
+    [
+      3,
+      2
+    ]
+  ]
+}

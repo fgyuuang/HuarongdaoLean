@@ -6,6 +6,29 @@ export const formalizationStats = [
   { value: '898', label: 'DFS 连续分量', note: '语义桥仍需 Lawful 实例', accent: 'amber' }
 ];
 
+export const researchContinuations = [
+  {
+    title: '同形与镜像商',
+    lean: 'ShapeState → MirrorShapeState',
+    detail: '把同形棋子的编号差异和水平镜像分别商掉，再用路径投影与提升检查距离是否保持。'
+  },
+  {
+    title: '全空间与连续等价类',
+    lean: '65,880 → 898 → ContinuousClass',
+    detail: '有限生成器覆盖 65,880 个合法代表，DFS 得到 898 个连通分量。语义基数结论仍由 Lawful 桥接。'
+  },
+  {
+    title: '关羽让路',
+    lean: 'GuanYuYield',
+    detail: '把"让路"写成动作敏感的谓词：动作必须由关羽执行，并且曹操下一次下降扫掠区的阻塞量严格下降。'
+  },
+  {
+    title: '局部图几何',
+    lean: 'CaoFiber · Hausdorff · RingIsland',
+    detail: '继续记录曹操位置纤维、有限距离矩阵、局部交换方形和最短路环岛，研究状态图的几何结构。'
+  }
+];
+
 export const modelFormalization = {
   paragraphs: [
     '我们首先在 Lean 4 中定义十个有限棋子、二维自然数坐标、矩形形状和四个移动方向。一个状态只记录每个棋子的左上角位置，而棋子占用的所有格子由形状函数计算得到。',
@@ -103,7 +126,7 @@ export const formalStages = [
     file: 'Huarongdao/GuanYuYield.lean',
     symbol: 'classic_solution_uses_guanYu_yield_of_finite_certificate',
     color: 'amber',
-    description: '在状态图上定义门区、曹操下降扫掠区和关羽让路事件。定理说明所有解都要经过这类让路步骤。',
+    description: '在状态图上定义门区、曹操下降扫掠区和关羽让路事件。强定理说明每个经典解都包含一个让路动作，而不是只说解会经过某个几何位置。',
     formula: '∀ solution, solution.path.UsesTransition GuanYuYield',
     outputs: ['门区必经性', '几何位置命题', '操作机制解释']
   },
@@ -137,6 +160,30 @@ export const theoremRecords = [
     related: ['classicTask_solution_lower_bound', 'shortest_of_verified_path_and_lower_bound'],
     sourceWindow: 18,
     fallback: `theorem classic116Play_minimal :\n    classic116Play.Minimal := by\n  intro other\n  rw [classic116Play_length]\n  exact\n    classicQuotientLowerBoundCertificate.play_lower_bound other.length`
+  },
+  {
+    id: 'classic_shortest_path_not_unique',
+    title: '116 步最短解不唯一',
+    category: '最短路拓扑',
+    evidence: 'conditional',
+    featured: true,
+    file: 'Huarongdao/ShortestPathTopology.lean',
+    anchor: 'theorem classic_shortest_path_not_unique',
+    tags: ['116 步', '非唯一', '环岛'],
+    statement: '∃ left right, left.length = 116 ∧ right.length = 116 ∧ left.actions ≠ right.actions ∧ 两者均为最短',
+    plain: '项目构造了两条动作列表不同、长度同为 116 的经典解，并分别继承最短性。它把“最短路径”从单条答案推进到路径空间的分叉结构。当前前端按源码中的定理展示；本轮没有把 `ShortestPathTopology.lean` 纳入独立编译验收，因此不把它标成已重新编译的内核结果。',
+    chain: ['classic116Play_minimal', 'classic116Alternative_runs', 'classic116Alternative_different', 'classic_shortest_path_not_unique'],
+    related: ['classic116Play_minimal', 'RingIsland', 'LocalTopology'],
+    sourceWindow: 22,
+    fallback: `theorem classic_shortest_path_not_unique :
+    ∃ left right : CertifiedPlay classic,
+      left.length = 116 ∧
+      right.length = 116 ∧
+      left.actions ≠ right.actions ∧
+      (∀ play : CertifiedPlay classic, left.length ≤ play.length) ∧
+      (∀ play : CertifiedPlay classic, right.length ≤ play.length) := by
+  refine ⟨classic116Play, classic116AlternativePlay, ?_, ?_, ?_, ?_, ?_⟩
+  ...`
   },
   {
     id: 'tryMove_preserves_validity',
@@ -231,6 +278,26 @@ export const theoremRecords = [
     fallback: `theorem classic_solutionGate_guanYuClearsCaoSweep :\n    SolutionGate classic GuanYuClearsCaoSweep := by\n  intro solution\n  apply solution.path.visits_of_usesEdge_source\n    CaoDownStep GuanYuClearsCaoSweep\n  · intro source target move\n    refine ⟨target, move, ?_⟩\n    exact successful_move_clears_sweep move (by decide)\n  · exact classic_solution_uses_cao_down solution`
   },
   {
+    id: 'classic_solution_uses_guanYu_yield',
+    title: '每个经典解都包含关羽让路动作',
+    category: '离散几何',
+    evidence: 'checked',
+    featured: true,
+    file: 'Huarongdao/GuanYuYieldFiniteCertificate.lean',
+    anchor: 'theorem classic_solution_uses_guanYu_yield',
+    tags: ['GuanYuYield', '有限证书', '经典任务'],
+    statement: '∀ solution : Solution classic, solution.path.UsesTransition GuanYuYield',
+    plain: '`GuanYuYield` 不是“关羽曾经到过门区”的位置命题。它要求某一步确实由关羽执行，并且曹操下一次下降扫掠区的阻塞量严格下降。Lean 先用避开该事件的有限商搜索构造证书，再用路径归纳把“避开让路就不可能到达目标”提升为每个解都必须包含让路动作。',
+    chain: ['GuanYuYield', 'avoidYieldQueue_no_goal', 'avoidYieldQueue_closed', 'classic_solution_uses_guanYu_yield_of_finite_certificate', 'classic_solution_uses_guanYu_yield'],
+    related: ['classic_solutionGate_guanYuClearsCaoSweep', 'classic_solution_visits_corridor_open'],
+    sourceWindow: 24,
+    fallback: `theorem classic_solution_uses_guanYu_yield
+    (solution : Solution classic) :
+    solution.path.UsesTransition GuanYuYield :=
+  classic_solution_uses_guanYu_yield_of_finite_certificate
+    avoidYieldFiniteCertificate solution`
+  },
+  {
     id: 'valid_goal_caoBelowGuanYu',
     title: '目标态中曹操位于关羽下方',
     category: '离散几何',
@@ -301,7 +368,7 @@ export const theoremRecords = [
     anchor: 'theorem continuousClass_card_eq_898',
     tags: ['898', 'cardinality', 'open boundary'],
     statement: 'Lawful fullSpaceRun → Fintype.card ContinuousClass = 898',
-    plain: '只要 DFS 运行满足 `Lawful`，根集合就与语义连续等价类等势，从而得到 898。当前定理保留这个前提。',
+    plain: '有限生成器已经给出 65,880 个合法代表和 898 个 DFS 根。只要完整运行满足 `Lawful`，根集合就与语义连续等价类等势，从而得到 898。当前定理保留这个前提；本轮没有把重型全空间检查重新编译成默认构建的一部分。',
     chain: ['fullSpace_semanticCertificate', 'fullSpaceRun_lawful_of_checked', 'continuousClass_card_eq_898'],
     related: ['fullSpaceRun_roots_size', 'continuousClass_card_eq_898_of_certificate'],
     sourceWindow: 18,
@@ -336,6 +403,9 @@ export const theoremDependencyEdges = [
   { from: 'concreteWalk_projectsToMirror', to: 'shortest_of_verified_path_and_lower_bound', label: '距离' },
   { from: 'shortest_of_verified_path_and_lower_bound', to: 'classic116Play_minimal', label: '最短性' },
   { from: 'valid_goal_caoBelowGuanYu', to: 'classic_solutionGate_guanYuClearsCaoSweep', label: '目标几何' },
+  { from: 'classic_solutionGate_guanYuClearsCaoSweep', to: 'classic_solution_uses_guanYu_yield', label: '门区到动作' },
+  { from: 'classic_solution_uses_guanYu_yield', to: 'classic116Play_minimal', label: '机制解释' },
+  { from: 'classic116Play_minimal', to: 'classic_shortest_path_not_unique', label: '同长分叉' },
   { from: 'fullSpace_semantic_complete', to: 'continuousClass_card_eq_898', label: '完备性' }
 ];
 
@@ -368,8 +438,11 @@ export const sourceFiles = [
   { path: 'Huarongdao/ClassicCertificate.lean', layer: '经典大定理', summary: '116 步动作、下界证书和 minimality' },
   { path: 'Huarongdao/CorridorCompression.lean', layer: '决策骨架', summary: '宏步压缩、展开和等成本提升' },
   { path: 'Huarongdao/Bottleneck.lean', layer: '离散几何', summary: 'SolutionGate、扫掠区和必经门区' },
+  { path: 'Huarongdao/GuanYuYield.lean', layer: '离散几何', summary: '关羽让路谓词、阻塞量和重标号不变性' },
+  { path: 'Huarongdao/GuanYuYieldFiniteCertificate.lean', layer: '离散几何', summary: '避开让路事件的有限证书与强版必经定理' },
   { path: 'Huarongdao/CaoGuanGeometry.lean', layer: '离散几何', summary: '目标态的曹操/关羽位置关系' },
-  { path: 'Huarongdao/ClassicContinuousClassCard.lean', layer: '全空间', summary: '65,880、898 与 ContinuousClass 基数桥' }
+  { path: 'Huarongdao/ClassicContinuousClassCard.lean', layer: '全空间', summary: '65,880、898 与 ContinuousClass 基数桥' },
+  { path: 'Huarongdao/ShortestPathTopology.lean', layer: '最短路拓扑', summary: '两条 116 步解、环岛和路径分叉结构' }
 ];
 
 export function theoremById(id) {

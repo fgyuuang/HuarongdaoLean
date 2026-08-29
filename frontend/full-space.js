@@ -48,6 +48,7 @@ const highlightGroup = new THREE.Group();
 scene.add(linkGroup, nodeGroup, highlightGroup);
 
 let data;
+let representativePath;
 let nodes = [];
 let nodesById = new Map();
 let nodeMesh;
@@ -247,8 +248,8 @@ function boardPieces(component) {
   return definitions.map((definition, index) => ({ ...definition, position: component.positions[index] }));
 }
 
-function renderBoard(component) {
-  const board = document.querySelector('#representative-board');
+function renderBoardInto(board, component) {
+  if (!board || !component) return;
   board.replaceChildren();
   boardPieces(component).forEach(piece => {
     const element = document.createElement('div');
@@ -260,6 +261,71 @@ function renderBoard(component) {
     element.style.height = `${piece.height * 20}%`;
     board.appendChild(element);
   });
+}
+
+function componentById(id) {
+  return data?.components?.find(component => component.id === Number(id)) || null;
+}
+
+function componentWithPositions(component, positions) {
+  if (!component || !Array.isArray(positions)) return component;
+  return { ...component, positions };
+}
+
+function renderComponentBoard(component) {
+  const section = document.querySelector('#component-board-section');
+  const board = document.querySelector('#representative-board');
+  const title = document.querySelector('#board-title');
+  const id = document.querySelector('#board-id');
+  const note = document.querySelector('#board-note');
+  const evidence = document.querySelector('#representative-evidence');
+  const classicId = data.meta.classicComponentId;
+  const verticalId = data.meta.verticalClassicComponentId;
+  let displayComponent = null;
+
+  if (component.id === classicId) {
+    displayComponent = componentWithPositions(
+      componentById(classicId),
+      data.meta.classicPositions
+    );
+    title.textContent = '传统横刀立马';
+    id.textContent = `#${classicId}`;
+    note.textContent = '经典初态所在的连续分量。这里展示的是游戏初始布局，不是 DFS 代表元。';
+  } else if (component.id === verticalId) {
+    displayComponent = componentWithPositions(
+      componentById(verticalId),
+      data.meta.verticalClassicPositions
+    );
+    title.textContent = '经典布局的上下镜像';
+    id.textContent = `#${verticalId}`;
+    note.textContent = '上下翻转给出离散图自同构对应的分量；翻转本身不是一次合法滑动。';
+  } else {
+    section.hidden = true;
+    board.replaceChildren();
+    evidence.className = 'representative-evidence ordinary-evidence';
+    evidence.innerHTML =
+      '<strong>当前分量不指定游戏初始状态。</strong> 这里仅展示分量规模、合法滑动边和离散对称映射；确定性代表元只在载入实验室时使用。';
+    return;
+  }
+
+  section.hidden = false;
+  renderBoardInto(board, displayComponent);
+  if (component.id === classicId) {
+    evidence.className = 'representative-evidence';
+    const pathLength = representativePath?.pathLength;
+    const pathEvidence = Number.isInteger(pathLength)
+      ? `Lean 已重放一条 ${pathLength} 步合法路径。`
+      : 'Lean 已重放一条具体合法路径。';
+    evidence.innerHTML =
+      `<strong>经典分量已有路径证据。</strong> ${pathEvidence} 经典初态与 DFS 代表元同属 ContinuousEquivalent 类 #` +
+      classicId + '；上下镜像属于类 #' + verticalId +
+      '，两类不同，不能用合法滑动互达。';
+  } else if (component.id === verticalId) {
+    evidence.className = 'representative-evidence separated';
+    evidence.innerHTML =
+      '<strong>这是经典初态的上下镜像分量。</strong> 上下翻转保持图结构和状态数，但它是离散图自同构，不是连续合法滑动；传统初态在类 #' +
+      classicId + '，当前代表元在类 #' + verticalId + '。';
+  }
 }
 
 function componentLabel(component) {
@@ -290,7 +356,7 @@ function selectComponent(id, moveCamera = false) {
   if (component.verticalFixed) fixed.push('上下固定');
   if (component.rotationFixed) fixed.push('旋转固定');
   document.querySelector('#fixed-summary').textContent = fixed.join(' · ') || '无对称固定';
-  renderBoard(component);
+  renderComponentBoard(component);
   refreshNodeColors();
   if (moveCamera) focusNode(component);
   return true;
@@ -489,9 +555,13 @@ function animate() {
 
 async function initialize() {
   configureReturnLink();
-  const response = await fetch(DATA_URL);
+  const [response, pathResponse] = await Promise.all([
+    fetch(DATA_URL),
+    fetch('./classic-representative-path.json')
+  ]);
   if (!response.ok) throw new Error(`全空间数据加载失败：HTTP ${response.status}`);
   data = await response.json();
+  representativePath = pathResponse.ok ? await pathResponse.json() : null;
   if (!Array.isArray(data.components) || data.components.length !== data.meta.componentCount) {
     throw new Error('全空间分量数据与元数据不一致');
   }

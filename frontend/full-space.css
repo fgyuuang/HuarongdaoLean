@@ -170,7 +170,7 @@ i.rotation { background: var(--violet); }
   z-index: 6;
   top: 24px;
   right: 24px;
-  width: 286px;
+  width: min(386px, calc(100vw - 48px));
   max-height: calc(100% - 66px);
   overflow: auto;
   padding: 16px;
@@ -185,11 +185,41 @@ i.rotation { background: var(--violet); }
 .component-kind.classic { color: var(--red); border-color: color-mix(in srgb, var(--red) 55%, var(--line)); }
 .component-kind.vertical-classic { color: #9a621a; border-color: color-mix(in srgb, var(--amber) 60%, var(--line)); }
 
+.component-board-section {
+  margin: 14px 0 10px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: rgba(247, 246, 241, 0.48);
+}
+.component-board-section[hidden] { display: none; }
+.component-board-section > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 5px;
+}
+.component-board-section > header strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.2;
+}
+.component-board-section > header span {
+  color: var(--muted);
+  font: 8px ui-monospace, Consolas, monospace;
+}
+.component-board-section > p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.35;
+}
 .representative-board {
-  width: 160px;
+  width: 100%;
   aspect-ratio: 4 / 5;
   position: relative;
-  margin: 16px auto;
+  margin: 0 auto;
   border: 2px solid #6c5141;
   background-color: #d8c49e;
   background-image:
@@ -211,6 +241,20 @@ i.rotation { background: var(--violet); }
 .representative-piece.guan { background: #b26a2f; }
 .representative-piece.vertical { background: #3d6d68; }
 .representative-piece.soldier { background: #4e6170; }
+.representative-evidence {
+  margin: 0 0 12px;
+  padding: 8px 9px;
+  border-left: 2px solid var(--teal);
+  background: rgba(36, 127, 120, 0.07);
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+.representative-evidence.separated {
+  border-left-color: var(--amber);
+  background: rgba(211, 138, 44, 0.09);
+}
+.representative-evidence strong { color: var(--ink); }
 
 .component-stats { display: grid; grid-template-columns: 1fr 1fr; margin: 0; border-top: 1px solid var(--line); }
 .component-stats div { min-width: 0; padding: 10px 8px; border-bottom: 1px solid var(--line); }
@@ -332,20 +376,15 @@ i.rotation { background: var(--violet); }
     bottom: 38px;
     left: 10px;
     width: auto;
-    max-height: 264px;
-    display: grid;
-    grid-template-columns: 112px 1fr;
-    grid-template-rows: auto 1fr auto;
-    gap: 0 12px;
+    max-height: 340px;
+    display: block;
     padding: 10px;
   }
-  .component-panel header { grid-column: 1 / -1; }
-  .representative-board { width: 104px; margin: 10px 0 0; grid-column: 1; grid-row: 2; }
-  .component-stats { margin-top: 10px; grid-column: 2; grid-row: 2; align-self: start; }
+  .representative-board { width: 100%; margin: 0; grid-column: auto; grid-row: auto; }
+  .component-stats { margin-top: 10px; }
   .component-stats div { padding: 6px; }
   .component-stats dd { font-size: 11px; }
   .symmetry-map { display: none; }
-  .component-panel footer { grid-column: 1 / -1; grid-row: 3; }
   .scene-legend { display: none; }
   .space-footer { padding: 0 8px; }
   .space-footer strong { display: none; }

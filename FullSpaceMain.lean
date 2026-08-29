@@ -59,6 +59,13 @@ def representativeJson
     ",\"verticalFixed\":" ++ toString (vertical == id) ++
     ",\"rotationFixed\":" ++ toString (rotation == id) ++ "}"
 
+def statePositionsJson (state : State) : String :=
+  let positions :=
+    String.intercalate "," <|
+      Piece.all.map fun piece =>
+        positionJson (state.pos piece)
+  "[" ++ positions ++ "]"
+
 def fullSpaceJson : String :=
   let result := analyze
   let symmetry := analyzeComponentSymmetries
@@ -72,6 +79,9 @@ def fullSpaceJson : String :=
     result.summaries.foldl
       (fun total summary => total + summary.directedEdgeCount) 0
   "{\"meta\":{\"width\":4,\"height\":5" ++
+    ",\"classicPositions\":" ++ statePositionsJson classic ++
+    ",\"verticalClassicPositions\":" ++
+      statePositionsJson (verticalMirrorState classic) ++
     ",\"shapeStateCount\":" ++ toString result.stateCount ++
     ",\"componentCount\":" ++ toString result.summaries.size ++
     ",\"horizontalComponentOrbitCount\":" ++
