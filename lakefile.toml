@@ -37,3 +37,7 @@ root = "CaoGuanReportMain"
 [[lean_exe]]
 name = "check-guan-yu-yield"
 root = "GuanYuYieldMain"
+
+[[lean_exe]]
+name = "cao-fiber-metrics"
+root = "CaoFiberMetricsMain"

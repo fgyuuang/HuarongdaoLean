@@ -258,7 +258,7 @@ theorem caoPositionGraph_adj_of_step
   have stateDifferent : source ≠ target := by
     intro equal
     apply changes
-    simpa [equal]
+    simp [equal]
   exact ⟨changes, source, target, rfl, rfl, ⟨⟨action, step⟩, stateDifferent⟩⟩
 
 theorem oneStepCaoPosition_of_other_piece

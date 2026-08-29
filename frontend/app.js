@@ -27,7 +27,7 @@ const dataFiles = {
   mirror: { graph: 'graph.mirror.json', layout: 'layout.mirror.json' },
   corridor: { graph: 'graph.corridor.json', layout: 'layout.corridor.json' }
 }[stateSpaceLayer];
-const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle cao-merge-label goal-sink-toggle cao-position-filter cao-trace-detail'.split(' ');
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle cao-merge-label goal-sink-toggle cao-position-filter cao-trace-detail ring-island-view ring-analysis-fit ring-analysis-go-goal ring-dag-distance ring-dag-count ring-branch-count ring-merge-count ring-square-count ring-path-count ring-proof-status ring-diagram ring-analysis-note ring-candidate-list'.split(' ');
 const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
 let graphData, layoutData, parentGraphData = null, outgoing, shortestGoalDistance = 0, shortestOperationDistance = 0;
@@ -79,7 +79,7 @@ let randomWalkEnabled = false;
 let forceGraph = null, forceNodes = [], forceLinks = [], forcePinned = true;
 let forceCurrentMarker = null, forceStartMarker = null, forceEndMarker = null, forceHoveredNode = null;
 let forceWidth = 0, forceHeight = 0, forceInitialFit = true;
-let localTopologyView = null, localTopologyViewPromise = null;
+let localTopologyView = null, localTopologyViewPromise = null, ringAnalysis = null;
 let topologyAnimationToken = 0;
 const forcePointer = { x: 0, y: 0 };
 let forcePointerDown = null, forceDragActive = false;
@@ -1409,8 +1409,222 @@ function updateGraphState() {
   } else if (graphMode === 'force') {
     ui['explored-count'].textContent = graphData.states.length.toLocaleString();
     ui['graph-summary'].textContent = '3d-force-graph · 当前 #' + current + ' · ' + (forcePinned ? '参考坐标固定' : 'd3-force-3d 有限松弛') + ' · ' + edgePairs.length.toLocaleString() + ' 条连接';
+  } else if (graphMode === 'ring') {
+    ui['graph-count-label'].textContent = '最短路 DAG';
+    ui['explored-count'].textContent = ringAnalysis?.dagNodeCount?.toLocaleString() || '--';
+    ui['graph-summary'].textContent = ringAnalysis
+      ? '最短路环岛 · ' + ringAnalysis.branchCount.toLocaleString() + ' 个分叉点 · ' +
+        ringAnalysis.mergeCount.toLocaleString() + ' 个汇合点 · ' +
+        ringAnalysis.squareCount.toLocaleString() + ' 个环岛候选'
+      : '正在提取最短路 DAG';
   }
   updateZoomLabel(graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target));
+}
+
+function shortestDagGoalDistance(state) {
+  return layoutData?.coordinates?.[state.id]?.[3] ?? Infinity;
+}
+
+function actionText(edge) {
+  return (pieces[edge.piece]?.label || '棋子') + '向' + edge.direction;
+}
+
+function analyzeShortestRingIslands() {
+  if (!graphData || !layoutData) return null;
+  if (isCorridorSpace) {
+    return {
+      unsupported: true,
+      dagNodeCount: 0,
+      branchCount: 0,
+      mergeCount: 0,
+      squareCount: 0,
+      pathCount: 0,
+      distance: shortestGoalDistance,
+      first: null,
+      candidates: []
+    };
+  }
+  const count = graphData.states.length;
+  const onDag = new Uint8Array(count);
+  const shortestOut = Array.from({ length: count }, () => []);
+  const shortestIn = Array.from({ length: count }, () => []);
+  const edgeByPair = new Map();
+  for (const state of graphData.states) {
+    if (state.distance + shortestDagGoalDistance(state) === shortestGoalDistance) onDag[state.id] = 1;
+  }
+  for (const edge of graphData.edges) {
+    if (!onDag[edge.source] || !onDag[edge.target]) continue;
+    if (graphData.states[edge.target].distance !== graphData.states[edge.source].distance + 1) continue;
+    const key = edge.source + ':' + edge.target;
+    if (!edgeByPair.has(key)) edgeByPair.set(key, edge);
+  }
+  for (const [key, edge] of edgeByPair) {
+    shortestOut[edge.source].push(edge.target);
+    shortestIn[edge.target].push(edge.source);
+  }
+  for (let id = 0; id < count; id += 1) {
+    shortestOut[id] = [...new Set(shortestOut[id])].sort((a, b) => a - b);
+    shortestIn[id] = [...new Set(shortestIn[id])].sort((a, b) => a - b);
+  }
+
+  const branches = [], merges = [];
+  for (let id = 0; id < count; id += 1) {
+    if (!onDag[id]) continue;
+    if (shortestOut[id].length >= 2) branches.push(id);
+    if (shortestIn[id].length >= 2) merges.push(id);
+  }
+
+  const candidateMap = new Map();
+  let squareCount = 0;
+  for (const entry of branches) {
+    const children = shortestOut[entry];
+    for (let leftIndex = 0; leftIndex < children.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < children.length; rightIndex += 1) {
+        const left = children[leftIndex], right = children[rightIndex];
+        const rightNext = new Set(shortestOut[right]);
+        const common = shortestOut[left].filter(id => rightNext.has(id));
+        for (const exit of common) {
+          squareCount += 1;
+          const key = entry + ':' + exit;
+          if (!candidateMap.has(key)) candidateMap.set(key, { entry, exit, upper: left, lower: right });
+        }
+      }
+    }
+  }
+
+  const ways = new Array(count).fill(0);
+  const dagNodes = graphData.states.filter(state => onDag[state.id])
+    .sort((a, b) => b.distance - a.distance || b.id - a.id);
+  for (const state of dagNodes) {
+    ways[state.id] = state.goal ? 1 : shortestOut[state.id].reduce((sum, id) => sum + ways[id], 0);
+  }
+  const candidates = [...candidateMap.values()]
+    .sort((a, b) =>
+      graphData.states[a.entry].distance - graphData.states[b.entry].distance ||
+      a.entry - b.entry ||
+      a.exit - b.exit)
+    .slice(0, 12)
+    .map(candidate => ({
+      ...candidate,
+      upperEdge: edgeByPair.get(candidate.entry + ':' + candidate.upper),
+      lowerEdge: edgeByPair.get(candidate.entry + ':' + candidate.lower),
+      upperExitEdge: edgeByPair.get(candidate.upper + ':' + candidate.exit),
+      lowerExitEdge: edgeByPair.get(candidate.lower + ':' + candidate.exit)
+    }));
+  const first = candidates[0] || null;
+  return {
+    unsupported: false,
+    distance: shortestGoalDistance,
+    dagNodeCount: dagNodes.length,
+    branchCount: branches.length,
+    mergeCount: merges.length,
+    squareCount,
+    pathCount: ways[0] || 0,
+    branches,
+    merges,
+    shortestOut,
+    shortestIn,
+    edgeByPair,
+    candidates,
+    first,
+    focused: first
+  };
+}
+
+function ringNodeMarkup(id, role) {
+  return `<button class="ring-node ${role}" data-ring-node="${id}" title="定位状态 #${id}"><b>#${id}</b><span>${role === 'entry' ? '入口 / 分叉' : role === 'exit' ? '出口 / 汇合' : '中间状态'}</span></button>`;
+}
+
+function renderRingAnalysis() {
+  if (!ui['ring-island-view'] || !graphData) return;
+  const focusedKey = ringAnalysis?.focused
+    ? ringAnalysis.focused.entry + ':' + ringAnalysis.focused.exit
+    : null;
+  ringAnalysis = analyzeShortestRingIslands();
+  if (focusedKey) {
+    ringAnalysis.focused = ringAnalysis.candidates.find(candidate =>
+      candidate.entry + ':' + candidate.exit === focusedKey) || ringAnalysis.first;
+  }
+  if (!ringAnalysis || ringAnalysis.unsupported) {
+    ui['ring-dag-distance'].textContent = shortestGoalDistance;
+    ui['ring-dag-count'].textContent = '—';
+    ui['ring-branch-count'].textContent = '—';
+    ui['ring-merge-count'].textContent = '—';
+    ui['ring-square-count'].textContent = '—';
+    ui['ring-path-count'].textContent = '—';
+    ui['ring-proof-status'].textContent = '决策骨架暂不展开';
+    ui['ring-analysis-note'].textContent = '当前为决策骨架视图。请切换到同形商或镜像商后查看单步最短路环岛。';
+    ui['ring-diagram'].innerHTML = '<div class="ring-empty"><strong>当前层使用加权宏边</strong><span>环岛分析需要逐步边；切换状态空间后可继续识别。</span></div>';
+    ui['ring-candidate-list'].innerHTML = '<li class="ring-empty-row">决策骨架中的宏边已在“拓扑样本”与图例中显示。</li>';
+    return;
+  }
+  const first = ringAnalysis.focused || ringAnalysis.first;
+  ui['ring-dag-distance'].textContent = ringAnalysis.distance.toLocaleString();
+  ui['ring-dag-count'].textContent = ringAnalysis.dagNodeCount.toLocaleString();
+  ui['ring-branch-count'].textContent = ringAnalysis.branchCount.toLocaleString();
+  ui['ring-merge-count'].textContent = ringAnalysis.mergeCount.toLocaleString();
+  ui['ring-square-count'].textContent = ringAnalysis.squareCount.toLocaleString();
+  ui['ring-path-count'].textContent = ringAnalysis.pathCount.toLocaleString();
+  if (!first) {
+    ui['ring-proof-status'].textContent = '未找到环岛';
+    ui['ring-analysis-note'].textContent = '当前最短路 DAG 中没有检测到两条等长的内部不交支路。';
+    ui['ring-diagram'].innerHTML = '<div class="ring-empty"><strong>没有符合判据的局部环岛</strong><span>可以切换状态空间或重新选择目标节点。</span></div>';
+    ui['ring-candidate-list'].innerHTML = '<li class="ring-empty-row">没有可展示的分叉-汇合候选。</li>';
+    return;
+  }
+  const upperPath = [first.entry, first.upper, first.exit];
+  const lowerPath = [first.entry, first.lower, first.exit];
+  ui['ring-proof-status'].textContent = 'RingIsland · 已验证结构';
+  ui['ring-analysis-note'].textContent =
+    `在状态 #${first.entry} 分叉，并在 #${first.exit} 首次汇合。两条支路均为 2 步，内部状态 #${first.upper} 与 #${first.lower} 不同。`;
+  ui['ring-diagram'].innerHTML = `
+    <div class="ring-flow">
+      <div class="ring-flow-column">${ringNodeMarkup(first.entry, 'entry')}</div>
+      <div class="ring-branch-stack">
+        <button class="ring-branch upper" data-ring-path="${upperPath.join(',')}">
+          <span><i></i>上支路</span><b>#${first.entry} → #${first.upper} → #${first.exit}</b>
+          <small>${actionText(first.upperEdge)}；${actionText(first.upperExitEdge)}</small><em>播放</em>
+        </button>
+        <button class="ring-branch lower" data-ring-path="${lowerPath.join(',')}">
+          <span><i></i>下支路</span><b>#${first.entry} → #${first.lower} → #${first.exit}</b>
+          <small>${actionText(first.lowerEdge)}；${actionText(first.lowerExitEdge)}</small><em>播放</em>
+        </button>
+      </div>
+      <div class="ring-flow-column">${ringNodeMarkup(first.exit, 'exit')}</div>
+    </div>
+    <div class="ring-equivalence"><code>upper.length = lower.length = 2</code><code>upper.actions ≠ lower.actions</code><code>interior ∩ = ∅</code></div>`;
+  ui['ring-candidate-list'].innerHTML = ringAnalysis.candidates.map((candidate, index) => `
+    <li><button data-ring-candidate="${index}">
+      <b>${index === 0 ? '首个' : '#' + (index + 1)}</b>
+      <span>#${candidate.entry} <i>→</i> #${candidate.exit}</span>
+      <small>支路 #${candidate.upper} / #${candidate.lower}</small>
+      <em>定位</em>
+    </button></li>`).join('');
+}
+
+function animateRingPath(path, label) {
+  if (!path || path.length < 2 || isAnimating) return;
+  const toStart = shortestPath(current, path[0]);
+  if (!toStart.length) return;
+  const sequence = [...toStart, ...path.slice(1)];
+  const token = ++animationToken;
+  isAnimating = true;
+  suppressCompletion = true;
+  routeStart = path[0]; routeEnd = path.at(-1); routePath = path.slice();
+  syncRouteControls(); updateGraphState();
+  (async () => {
+    for (let index = 1; index < sequence.length; index += 1) {
+      if (token !== animationToken) return;
+      const from = sequence[index - 1], to = sequence[index];
+      const edge = outgoing[from]?.find(item => item.target === to);
+      if (!edge) return;
+      renderState(to, true, label + ' ' + index + '/' + (sequence.length - 1) + '：' + actionText(edge), 'route', edge);
+      await wait(180);
+    }
+    if (token !== animationToken) return;
+    isAnimating = false; suppressCompletion = false; syncRouteControls();
+    ui['last-move'].textContent = `${label}已到达环岛出口 #${path.at(-1)}；两条支路长度相同`;
+  })();
 }
 
 function shortestPath(start, target) {
@@ -1523,9 +1737,9 @@ function locateCurrent() {
   controls.target.copy(target); camera.position.copy(target).add(direction.multiplyScalar(16)); controls.update();
 }
 function setGraphMode(mode, refit = true) {
-  if (!['overview', 'force', 'explore', 'topology'].includes(mode)) return;
+  if (!['overview', 'force', 'explore', 'topology', 'ring'].includes(mode)) return;
   const previousMode = graphMode;
-  if (previousMode === 'topology' && mode !== 'topology') {
+  if ((previousMode === 'topology' || previousMode === 'ring') && mode !== previousMode) {
     topologyAnimationToken += 1;
     renderState(current, false);
   }
@@ -1539,9 +1753,10 @@ function setGraphMode(mode, refit = true) {
   pointCloud = mode === 'overview'
     ? (caoMergeEnabled ? caoProjectionPoints : goalSinkEnabled ? goalSinkPoints : overviewPoints)
     : mode === 'explore' ? explorePoints : null;
-  ui.graph.hidden = mode === 'force' || mode === 'topology';
+  ui.graph.hidden = mode === 'force' || mode === 'topology' || mode === 'ring';
   ui['graph-force'].hidden = mode !== 'force';
   document.getElementById('local-topology-view').hidden = mode !== 'topology';
+  ui['ring-island-view'].hidden = mode !== 'ring';
   ui['force3d-actions'].hidden = mode !== 'force';
   ui['graph-wrap'].dataset.mode = mode;
   ui['force-settings-toggle'].hidden = mode !== 'explore';
@@ -1557,6 +1772,10 @@ function setGraphMode(mode, refit = true) {
         document.querySelector('.local-topology-loading').textContent = '局部子图载入失败';
         console.error(error);
       });
+  }
+  if (mode === 'ring') {
+    setProofTrace(false);
+    renderRingAnalysis();
   }
   localTopologyView?.setActive(mode === 'topology');
   updateGraphState();
@@ -1576,6 +1795,8 @@ function setGraphMode(mode, refit = true) {
     });
   } else if (mode === 'topology') {
     if (refit) localTopologyViewPromise?.then(view => view?.fit());
+  } else if (mode === 'ring') {
+    ui['ring-analysis-fit']?.focus();
   } else if (refit) requestAnimationFrame(fitGraph);
 }
 
@@ -1792,6 +2013,44 @@ ui['force3d-pin'].onclick = pinForceReferenceShape;
 document.getElementById('pick-start').onclick = () => { selectionMode = 'start'; routeStartPinned = true; syncRouteControls(); };
 document.getElementById('pick-end').onclick = () => { selectionMode = 'end'; syncRouteControls(); };
 document.getElementById('route-play').onclick = animateSelectedRoute;
+ui['ring-analysis-fit']?.addEventListener('click', () => {
+  if (ringAnalysis?.first) {
+    ringAnalysis.focused = ringAnalysis.first;
+    renderRingAnalysis();
+    const { entry, exit } = ringAnalysis.first;
+    routeStart = entry; routeEnd = exit; routePath = [entry, exit];
+    syncRouteControls(); updateGraphState();
+    ui['ring-analysis-note'].textContent = `已定位环岛入口 #${entry} 与出口 #${exit}。点击支路卡片可播放不同构造。`;
+  }
+});
+ui['ring-analysis-go-goal']?.addEventListener('click', () => {
+  findGoalPath();
+  if (routePath.length > 1) animateSelectedRoute();
+});
+ui['ring-diagram']?.addEventListener('click', event => {
+  const branch = event.target.closest('[data-ring-path]');
+  const node = event.target.closest('[data-ring-node]');
+  if (branch) {
+    const path = branch.dataset.ringPath.split(',').map(Number);
+    animateRingPath(path, branch.classList.contains('upper') ? '上支路' : '下支路');
+  } else if (node) {
+    const id = Number(node.dataset.ringNode);
+    routeStart = id; routeEnd = null; routePath = [];
+    syncRouteControls(); renderState(id, false, '已选择环岛状态 #' + id); locateCurrent();
+  }
+});
+ui['ring-candidate-list']?.addEventListener('click', event => {
+  const button = event.target.closest('[data-ring-candidate]');
+  if (!button || !ringAnalysis) return;
+  const candidate = ringAnalysis.candidates[Number(button.dataset.ringCandidate)];
+  if (!candidate) return;
+  const path = [candidate.entry, candidate.upper, candidate.exit];
+  ringAnalysis.focused = candidate;
+  renderRingAnalysis();
+  routeStart = candidate.entry; routeEnd = candidate.exit; routePath = path;
+  syncRouteControls(); renderState(candidate.entry, false, '已定位环岛入口 #' + candidate.entry); locateCurrent();
+  ui['ring-analysis-note'].textContent = `已定位候选 #${button.dataset.ringCandidate}：入口 #${candidate.entry}，出口 #${candidate.exit}。`;
+});
 document.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => setGraphMode(button.dataset.mode));
 ui['quotient-contract']?.addEventListener('input', event => {
   contractionAnimationToken += 1;

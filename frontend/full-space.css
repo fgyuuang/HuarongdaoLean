@@ -88,7 +88,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   cursor: pointer;
 }
 .icon-button { width: 34px; font-size: 16px; }
-.return-link { display: grid; place-items: center; padding: 0 11px; text-decoration: none; font-size: 11px; }
+.return-link { display: grid; place-items: center; padding: 0 11px; text-decoration: none; font-size: 11px; white-space: nowrap; }
 .icon-button:hover, .return-link:hover { border-color: var(--teal); }
 
 .full-workspace { position: relative; height: calc(100% - 62px); }
@@ -310,7 +310,8 @@ i.rotation { background: var(--violet); }
     gap: 4px 8px;
     padding: 8px 10px;
   }
-  .brand small, .return-link { display: none; }
+  .brand small { display: none; }
+  .return-link { display: grid; padding: 0 8px; font-size: 10px; }
   .top-actions { grid-column: 1 / -1; }
   .search-box { max-width: none; }
   .full-workspace { height: calc(100% - 102px); }

@@ -48,10 +48,22 @@ labGraphRaycaster.params.Points.threshold = .45; labGraphScene.add(labGraphGroup
 let labGraphPoints = null, labGraphPointerDown = null, labGraphHoverPosition = null;
 let labGraphHoverFrame = null, labGraphLastHoverPick = 0;
 
+function syncFullSpaceEntry(mode) {
+  const link = document.querySelector('.full-space-entry');
+  if (!link) return;
+  const inLab = mode === 'lab';
+  link.href = inLab ? 'full-space.html?from=lab' : 'full-space.html?from=main';
+  link.textContent = inLab ? '全空间预览' : '全空间预览';
+  link.title = inLab
+    ? '打开全空间预览；返回时保留关卡实验室'
+    : '查看 898 个连续分量的全空间总览';
+}
+
 function switchMode(mode) {
   const lab = mode === 'lab';
   $('laboratory').hidden = !lab; $('classic-workspace').hidden = lab;
   $('mode-lab').classList.toggle('active', lab); $('mode-classic').classList.toggle('active', !lab);
+  syncFullSpaceEntry(mode);
   const nextUrl = new URL(location.href);
   if (lab) nextUrl.searchParams.set('mode', 'lab');
   else nextUrl.searchParams.delete('mode');

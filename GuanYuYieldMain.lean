@@ -87,6 +87,17 @@ def findJointObservationCollision : Option (State × State) := Id.run do
         seen := seen.insert key (state, isOpen)
   return none
 
+/-!
+This is the checked finite computation behind the avoidance claim.  It is
+intentionally kept next to the executable BFS: the theorem certifies the
+returned finite search result, while `YieldAvoidanceCertificate` in the
+library is the semantic interface still needed to lift that result to every
+labelled path.
+-/
+set_option maxHeartbeats 0 in
+theorem avoidYieldBfs_none : avoidYieldBfs = none := by
+  native_decide
+
 def actionLabel (action : Action) : String :=
   action.piece.label ++ action.direction.label
 

@@ -58,7 +58,7 @@ Lean 定理
 
 可达性、组合连续性、对称商与可达商的严格区别，以及“关公必须让路”应如何写成割集定理，见 [`docs/REACHABILITY_AND_CONTINUITY.md`](docs/REACHABILITY_AND_CONTINUITY.md)。
 
-经典形状全集的构造枚举、`65,880` 个合法同形布局、`898` 个 DFS 分量摘要、Klein 四元群下 `230` 个分量轨道，以及当前证书尚缺的生成器完备性桥，见 [`docs/FULL_SHAPE_SPACE.md`](docs/FULL_SHAPE_SPACE.md)。本地启动后可从顶部“全空间”进入 [`frontend/full-space.html`](frontend/full-space.html)：一个节点代表一个连续分量，左右/上下/旋转连线只表示离散图同构，不表示合法滑动。全空间计算与重证书被隔离在 `ClassicFullSpace` / `ClassicFullSpaceCertificate`，不拖入默认构建。
+经典形状全集的构造枚举、`65,880` 个合法同形布局、`898` 个 DFS 分量摘要、Klein 四元群下 `230` 个分量轨道，以及 `EnumerationComplete` 到有限数组覆盖的证明桥，见 [`docs/FULL_SHAPE_SPACE.md`](docs/FULL_SHAPE_SPACE.md)。本地启动后可从顶部“全空间预览”进入 [`frontend/full-space.html`](frontend/full-space.html)：一个节点代表一个连续分量，左右/上下/旋转连线只表示离散图同构，不表示合法滑动。全空间计算与重证书被隔离在 `ClassicFullSpace` / `ClassicFullSpaceCertificate`，不拖入默认构建。
 
 全空间节点现在可以直接成为关卡实验室的初态来源。点击节点会显示该分量的确定性代表棋盘；点击“接入当前任务”后，页面通过 `?mode=lab&fullSpaceComponent=<id>` 载入经典 `4×5` 形状组和曹操目标 `(1,3)`，可继续验证、A* 求解或 BFS 枚举。分量代表是全空间枚举的规范初态，不等同于传统“横刀立马”初态；分量 `#15` 才与传统初态处于同一连续等价类。
 
@@ -343,8 +343,9 @@ npm run serve
 - `Huarongdao/StateSpaceConnectivity.lean`：可逆任务上的可达等价关系、可达分支商、一步不变量及 Mathlib 连通分支等价
 - `Huarongdao/ClassicFullSpace.lean`：经典全拼法候选枚举、紧凑索引、单次 DFS 分量摘要与数据层
 - `Huarongdao/ClassicFullSpaceCertificate.lean`：隔离运行的 65,880 状态、898 摘要与闭包原生证书
-- `Huarongdao/ClassicFullSpaceSoundness.lean`：DFS 分割的语义 soundness、索引 checker 和连续等价类基数桥
 - `Huarongdao/ClassicFullSpaceSoundness.lean`：DFS 父边、闭包 checker 到语义可达分类的 soundness 桥
+- `Huarongdao/ClassicFullSpaceCompleteness.lean`：经典同形空间的规范枚举完备性证明
+- `Huarongdao/ClassicContinuousClassCard.lean`：隔离的 `898` 基数接口和经典大分量 `25,955` 语义计数接口
 - `Huarongdao/ClassicComponentSymmetry.lean`：水平/垂直反射对合法移动、ShapeState、连续分量和二分图着色的形式化
 - `Huarongdao/ClassicComponentSymmetryCertificate.lean`：459 个水平轨道、固定分量和两个最大分量交换的隔离原生证书
 - `Huarongdao/GraphTopology.lean`：Mathlib 二分图、交换方形胞腔、基本环类、桥与必经门 checker

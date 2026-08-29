@@ -77,5 +77,144 @@ theorem classic_solution_visits_corridor_open :
     SolutionGate classic CorridorOpen :=
   classic_solutionGate_caoCanDescend
 
+/-!
+## The logical core of the strong statement
+
+The executable quotient search is a finite candidate certificate, but the
+path-level theorem should not depend on its implementation details.  The
+following certificate isolates exactly the invariant needed to lift a finite
+avoidance computation to the original labelled state graph.
+-/
+
+structure YieldAvoidanceCertificate (start : State) where
+  inside : State → Prop
+  start_inside : inside start
+  closed :
+    ∀ {source action target},
+      inside source →
+      tryMove source action.piece action.direction = some target →
+      ¬ GuanYuYield source action target →
+      inside target
+  goal_excluded :
+    ∀ {target}, inside target → goal target = true → False
+
+namespace YieldAvoidanceCertificate
+
+variable {start : State}
+
+theorem path_inside
+    (certificate : YieldAvoidanceCertificate start)
+    {source target : State}
+    (path : Path source target)
+    (source_inside : certificate.inside source)
+    (avoids : ¬ path.UsesTransition GuanYuYield) :
+    certificate.inside target := by
+  induction path with
+  | nil =>
+      exact source_inside
+  | @cons source middle target action step tail inductionHypothesis =>
+      have first_not_yield :
+          ¬ GuanYuYield source action middle := by
+        intro yield
+        exact avoids (Or.inl yield)
+      have middle_inside :=
+        certificate.closed source_inside step first_not_yield
+      have tail_avoids : ¬ tail.UsesTransition GuanYuYield := by
+        intro later
+        exact avoids (Or.inr later)
+      exact inductionHypothesis middle_inside tail_avoids
+
+theorem no_solution_avoids_yield
+    (certificate : YieldAvoidanceCertificate start)
+    {target : State}
+    (path : Path start target)
+    (solved : goal target = true)
+    (avoids : ¬ path.UsesTransition GuanYuYield) :
+    False := by
+  exact certificate.goal_excluded
+    (certificate.path_inside path certificate.start_inside avoids) solved
+
+theorem uses_yield
+    (certificate : YieldAvoidanceCertificate start)
+    {target : State}
+    (path : Path start target)
+    (solved : goal target = true) :
+    path.UsesTransition GuanYuYield := by
+  by_contra avoids
+  exact certificate.no_solution_avoids_yield path solved avoids
+
+end YieldAvoidanceCertificate
+
+theorem classic_solution_uses_guanYu_yield_of_certificate
+    (certificate : YieldAvoidanceCertificate classic)
+    (solution : Solution classic) :
+    solution.path.UsesTransition GuanYuYield :=
+  certificate.uses_yield solution.path solution.solved
+
+/-- A finite-node version of the avoidance certificate.  `Node` is intended
+to be a canonical quotient presentation, while `represents` carries the
+semantic relation back to labelled states. -/
+structure FiniteYieldAvoidanceCertificate (start : State) where
+  Node : Type
+  represents : State → Node → Prop
+  startNode : Node
+  startRepresented : represents start startNode
+  inside : Node → Bool
+  startInside : inside startNode = true
+  simulateNoYield :
+    ∀ {source target : State} {node : Node} {action : Action},
+      represents source node →
+      tryMove source action.piece action.direction = some target →
+      ¬ GuanYuYield source action target →
+      ∃ next : Node,
+        inside next = true ∧
+        represents target next
+  goalExcluded :
+    ∀ {target : State} {node : Node},
+      represents target node →
+      inside node = true →
+      goal target = true →
+      False
+
+namespace FiniteYieldAvoidanceCertificate
+
+variable {start : State}
+
+def toYieldAvoidanceCertificate
+    (certificate : FiniteYieldAvoidanceCertificate start) :
+    YieldAvoidanceCertificate start where
+  inside state :=
+    ∃ node, certificate.inside node = true ∧
+      certificate.represents state node
+  start_inside :=
+    ⟨certificate.startNode, certificate.startInside,
+      certificate.startRepresented⟩
+  closed := by
+    intro source action target sourceInside step notYield
+    rcases sourceInside with ⟨node, nodeInside, represented⟩
+    rcases certificate.simulateNoYield represented step notYield with
+      ⟨next, nextInside, targetRepresented⟩
+    exact ⟨next, nextInside, targetRepresented⟩
+  goal_excluded := by
+    intro target targetInside targetGoal
+    rcases targetInside with ⟨node, nodeInside, represented⟩
+    exact certificate.goalExcluded represented nodeInside targetGoal
+
+theorem uses_yield
+    (certificate : FiniteYieldAvoidanceCertificate start)
+    {target : State}
+    (path : Path start target)
+    (solved : goal target = true) :
+    path.UsesTransition GuanYuYield :=
+  certificate.toYieldAvoidanceCertificate.uses_yield path solved
+
+end FiniteYieldAvoidanceCertificate
+
+theorem classic_solution_uses_guanYu_yield_of_finite_certificate
+    (certificate : FiniteYieldAvoidanceCertificate classic)
+    (solution : Solution classic) :
+    solution.path.UsesTransition GuanYuYield :=
+  certificate.uses_yield solution.path solution.solved
+
 end GuanYuYieldTheory
 end Huarongdao

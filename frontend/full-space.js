@@ -390,6 +390,21 @@ function updateMetrics() {
     `${formatNumber(meta.componentCount)} 分量 · 左右 ${linkObjects.horizontal.count} 对 · 上下 ${linkObjects.vertical.count} 对 · 旋转 ${linkObjects.rotation.count} 对`;
 }
 
+function configureReturnLink() {
+  const link = document.querySelector('#return-link');
+  if (!link) return;
+  const source = new URLSearchParams(location.search).get('from');
+  if (source === 'lab') {
+    link.href = './index.html?mode=lab';
+    link.textContent = '返回关卡实验室';
+    link.title = '返回关卡实验室';
+  } else {
+    link.href = './index.html';
+    link.textContent = '返回任务图';
+    link.title = '返回经典任务图';
+  }
+}
+
 function bindUi() {
   document.querySelector('#show-horizontal').addEventListener('change', event => {
     linkObjects.horizontal.lines.visible = event.target.checked;
@@ -473,6 +488,7 @@ function animate() {
 }
 
 async function initialize() {
+  configureReturnLink();
   const response = await fetch(DATA_URL);
   if (!response.ok) throw new Error(`全空间数据加载失败：HTTP ${response.status}`);
   data = await response.json();

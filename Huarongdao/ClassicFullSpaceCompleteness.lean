@@ -388,5 +388,224 @@ theorem normalized_soldier_mem_sublists
   · simpa [normalizedSoldierPositions, boardSort, soldierPositions] using
       List.Perm.length_eq (normalizedSoldierPositions_perm state.1)
 
+private theorem representativeState_verticalPositions
+    (cao guan : Pos) (vertical soldiers : List Pos)
+    (verticalLength : vertical.length = 4) :
+    verticalPositions
+        (representativeState cao guan vertical soldiers) =
+      vertical := by
+  cases vertical with
+  | nil => simp at verticalLength
+  | cons a vertical =>
+    cases vertical with
+    | nil => simp at verticalLength
+    | cons b vertical =>
+      cases vertical with
+      | nil => simp at verticalLength
+      | cons c vertical =>
+        cases vertical with
+        | nil => simp at verticalLength
+        | cons d vertical =>
+          cases vertical with
+          | nil => rfl
+          | cons e vertical => simp at verticalLength
+
+private theorem representativeState_soldierPositions
+    (cao guan : Pos) (vertical soldiers : List Pos)
+    (soldierLength : soldiers.length = 4) :
+    soldierPositions
+        (representativeState cao guan vertical soldiers) =
+      soldiers := by
+  cases soldiers with
+  | nil => simp at soldierLength
+  | cons a soldiers =>
+    cases soldiers with
+    | nil => simp at soldierLength
+    | cons b soldiers =>
+      cases soldiers with
+      | nil => simp at soldierLength
+      | cons c soldiers =>
+        cases soldiers with
+        | nil => simp at soldierLength
+        | cons d soldiers =>
+          cases soldiers with
+          | nil => rfl
+          | cons e soldiers => simp at soldierLength
+
+private theorem representativeState_sameShape
+    (state : ValidClassicState)
+    (vertical : List Pos) (soldiers : List Pos)
+    (verticalEq : vertical = normalizedVerticalPositions state.1)
+    (soldierEq : soldiers = normalizedSoldierPositions state.1)
+    (verticalLength : vertical.length = 4)
+    (soldierLength : soldiers.length = 4) :
+    SameShape state.1
+      (representativeState
+        (state.1.pos .caoCao) (state.1.pos .guanYu) vertical soldiers) := by
+  refine ⟨rfl, rfl, ?_, ?_⟩
+  · rw [representativeState_verticalPositions _ _ _ _ verticalLength]
+    rw [verticalEq]
+    exact (normalizedVerticalPositions_perm state.1).symm
+  · rw [representativeState_soldierPositions _ _ _ _ soldierLength]
+    rw [soldierEq]
+    exact (normalizedSoldierPositions_perm state.1).symm
+
+/-- The constructive generator covers every valid labelled state modulo
+permutations of equal-shaped pieces. -/
+theorem enumerationComplete : EnumerationComplete := by
+  intro source
+  let cao := source.1.pos .caoCao
+  let guan := source.1.pos .guanYu
+  let vertical := normalizedVerticalPositions source.1
+  let soldiers := normalizedSoldierPositions source.1
+  have verticalMem :
+      vertical ∈ verticalAnchors.sublistsLen 4 := by
+    exact normalized_vertical_mem_sublists source
+  have verticalLength : vertical.length = 4 := by
+    simpa [vertical] using (List.mem_sublistsLen.mp verticalMem).2
+  have occupiedNodup :
+      (rectangleCells cao ⟨2, 2⟩ ++
+        rectangleCells guan ⟨2, 1⟩ ++
+        vertical.flatMap fun anchor =>
+          rectangleCells anchor ⟨1, 2⟩).Nodup := by
+    simpa [cao, guan, vertical, normalizedLargeOccupiedCells] using
+      normalizedLargeOccupiedCells_nodup source
+  have soldiersMem :
+      soldiers ∈
+        (boardCells.filter fun cell =>
+          cell ∉
+            (rectangleCells cao ⟨2, 2⟩ ++
+              rectangleCells guan ⟨2, 1⟩ ++
+              vertical.flatMap fun anchor =>
+                rectangleCells anchor ⟨1, 2⟩)).sublistsLen 4 := by
+    simpa [cao, guan, vertical, soldiers,
+      normalizedLargeOccupiedCells] using
+      normalized_soldier_mem_sublists source
+  have soldierLength : soldiers.length = 4 := by
+    simpa [soldiers] using (List.mem_sublistsLen.mp soldiersMem).2
+  let representative := representativeState cao guan vertical soldiers
+  have representativeMem : representative ∈ allShapeStatesList := by
+    simp only [allShapeStatesList, List.mem_flatMap]
+    refine ⟨cao, ?_, guan, ?_, vertical, verticalMem, ?_⟩
+    · exact cao_anchor_mem_of_valid source
+    · exact guan_anchor_mem_of_valid source
+    · simp only [occupiedNodup, ↓reduceIte]
+      exact List.mem_map.mpr ⟨soldiers, soldiersMem, rfl⟩
+  refine ⟨representative, representativeMem, ?_⟩
+  exact representativeState_sameShape source vertical soldiers
+    rfl rfl verticalLength soldierLength
+
+/-- Unpack a generated list member into the geometric witnesses used by the
+constructive enumerator.  This is the data-level counterpart of
+`enumerationComplete`. -/
+theorem allShapeStatesList_member_data
+    {state : State} (member : state ∈ allShapeStatesList) :
+    ∃ cao guan vertical soldiers,
+      cao ∈ caoAnchors ∧
+      guan ∈ guanAnchors ∧
+      vertical ∈ verticalAnchors.sublistsLen 4 ∧
+      soldiers ∈
+        (boardCells.filter fun cell =>
+          cell ∉
+            (rectangleCells cao ⟨2, 2⟩ ++
+              rectangleCells guan ⟨2, 1⟩ ++
+              vertical.flatMap fun anchor =>
+                rectangleCells anchor ⟨1, 2⟩)).sublistsLen 4 ∧
+      state = representativeState cao guan vertical soldiers := by
+  simp only [allShapeStatesList, List.mem_flatMap] at member
+  rcases member with ⟨cao, hcao, guan, hguan, vertical, hvertical, tail⟩
+  by_cases hnodup :
+      (rectangleCells cao ⟨2, 2⟩ ++
+        rectangleCells guan ⟨2, 1⟩ ++
+        vertical.flatMap fun anchor => rectangleCells anchor ⟨1, 2⟩).Nodup
+  · simp only [hnodup, ↓reduceIte] at tail
+    rcases List.mem_map.mp tail with ⟨soldiers, hsoldiers, hstate⟩
+    exact ⟨cao, guan, vertical, soldiers, hcao, hguan, hvertical,
+      hsoldiers, hstate.symm⟩
+  · simp only [hnodup, ↓reduceIte] at tail
+    exact False.elim (by simpa using tail)
+
+private theorem verticalAnchors_pairwise :
+    verticalAnchors.Pairwise Pos.boardLE := by
+  decide
+
+private theorem generated_canonical
+    {state : State} (member : state ∈ allShapeStatesList) :
+    (verticalPositions state).Pairwise Pos.boardLE ∧
+      (soldierPositions state).Pairwise Pos.boardLE := by
+  rcases allShapeStatesList_member_data member with
+    ⟨cao, guan, vertical, soldiers, _hcao, _hguan, hvertical,
+      hsoldiers, hstate⟩
+  have verticalPair : vertical.Pairwise Pos.boardLE :=
+    verticalAnchors_pairwise.sublist
+      (List.mem_sublistsLen.mp hvertical).1
+  have freePair :
+      (boardCells.filter fun cell =>
+        cell ∉
+          (rectangleCells cao ⟨2, 2⟩ ++
+            rectangleCells guan ⟨2, 1⟩ ++
+            vertical.flatMap fun anchor =>
+              rectangleCells anchor ⟨1, 2⟩)).Pairwise Pos.boardLE :=
+    filtered_board_pairwise _
+  have soldierPair : soldiers.Pairwise Pos.boardLE :=
+    freePair.sublist (List.mem_sublistsLen.mp hsoldiers).1
+  subst state
+  have verticalLength : vertical.length = 4 := by
+    simpa using (List.mem_sublistsLen.mp hvertical).2
+  have soldierLength : soldiers.length = 4 := by
+    simpa using (List.mem_sublistsLen.mp hsoldiers).2
+  constructor
+  · simpa [representativeState_verticalPositions _ _ _ _
+      verticalLength] using verticalPair
+  · simpa [representativeState_soldierPositions _ _ _ _
+      soldierLength] using soldierPair
+
+/-- Two valid generated representatives with the same shape are equal. -/
+theorem generated_sameShape_eq
+    {source target : State}
+    (sourceValid : ValidState source)
+    (targetValid : ValidState target)
+    (sourceMember : source ∈ allShapeStatesList)
+    (targetMember : target ∈ allShapeStatesList)
+    (same : SameShape source target) :
+    source = target := by
+  have sourceCanonical := generated_canonical sourceMember
+  have targetCanonical := generated_canonical targetMember
+  have verticalEq :
+      verticalPositions source = verticalPositions target :=
+    List.Perm.eq_of_pairwise' sourceCanonical.1 targetCanonical.1 same.2.2.1
+  have soldierEq :
+      soldierPositions source = soldierPositions target :=
+    List.Perm.eq_of_pairwise' sourceCanonical.2 targetCanonical.2 same.2.2.2
+  apply State.eq_of_valid_pos_eq sourceValid targetValid
+  intro piece
+  cases piece with
+  | caoCao => exact same.1
+  | guanYu => exact same.2.1
+  | zhangFei =>
+      have h := congrArg (fun values => values.getD 0 ⟨0, 0⟩) verticalEq
+      simpa [verticalPositions] using h
+  | zhaoYun =>
+      have h := congrArg (fun values => values.getD 1 ⟨0, 0⟩) verticalEq
+      simpa [verticalPositions] using h
+  | maChao =>
+      have h := congrArg (fun values => values.getD 2 ⟨0, 0⟩) verticalEq
+      simpa [verticalPositions] using h
+  | huangZhong =>
+      have h := congrArg (fun values => values.getD 3 ⟨0, 0⟩) verticalEq
+      simpa [verticalPositions] using h
+  | soldier1 =>
+      have h := congrArg (fun values => values.getD 0 ⟨0, 0⟩) soldierEq
+      simpa [soldierPositions] using h
+  | soldier2 =>
+      have h := congrArg (fun values => values.getD 1 ⟨0, 0⟩) soldierEq
+      simpa [soldierPositions] using h
+  | soldier3 =>
+      have h := congrArg (fun values => values.getD 2 ⟨0, 0⟩) soldierEq
+      simpa [soldierPositions] using h
+  | soldier4 =>
+      have h := congrArg (fun values => values.getD 3 ⟨0, 0⟩) soldierEq
+      simpa [soldierPositions] using h
+
 end ClassicFullSpace
 end Huarongdao

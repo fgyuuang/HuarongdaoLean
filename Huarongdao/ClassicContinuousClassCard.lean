@@ -1,6 +1,7 @@
 import Huarongdao.ClassicFullSpaceSoundness
 import Huarongdao.ClassicFullSpaceCertificate
 import Huarongdao.ClassicComponentSymmetryCertificate
+import Huarongdao.ClassicFullSpaceCompleteness
 
 set_option maxRecDepth 100000
 
@@ -20,6 +21,65 @@ arrays are only a finite presentation of that quotient.  A
 /-- The concrete DFS run used by the full-space analysis. -/
 def fullSpaceRun : ComponentRun :=
   componentSummariesOf allShapeStates
+
+/-- Every quotient state has a representative in the executable full-space
+array.  This is the semantic coverage half of the eventual `Lawful` proof. -/
+theorem fullSpace_semantic_complete :
+    ∀ node : ShapeState,
+      ∃ index : Fin allShapeStates.size,
+        ShapeState.ofState
+            ⟨allShapeStates[index],
+              checkAllValid_sound
+                (by simpa [analyze, checkAllValid] using analysis_allValid)
+                index.2⟩ =
+          node :=
+    enumerationComplete_quotient_cover
+    (fun index =>
+      checkAllValid_sound
+        (by simpa [analyze, checkAllValid] using analysis_allValid)
+        index.2)
+    enumerationComplete
+
+private theorem fullSpace_index_valid (index : Fin allShapeStates.size) :
+    ValidState allShapeStates[index] :=
+  checkAllValid_sound
+    (by simpa [analyze, checkAllValid] using analysis_allValid)
+    index.2
+
+/-- The semantic equality test on two generated representatives is strong
+enough to identify their concrete array entries.  This is the canonical
+representative half of the eventual DFS certificate. -/
+theorem fullSpace_generated_shape_exact
+    {left right : Fin allShapeStates.size}
+    (stateInjective :
+      ∀ {i j : Fin allShapeStates.size},
+        allShapeStates[i] = allShapeStates[j] → i = j)
+    (sameState :
+      ShapeState.ofState
+          ⟨allShapeStates[left], fullSpace_index_valid left⟩ =
+        ShapeState.ofState
+          ⟨allShapeStates[right], fullSpace_index_valid right⟩) :
+    fullSpaceRun.componentOf.getD left.1 fullSpaceRun.roots.size =
+      fullSpaceRun.componentOf.getD right.1 fullSpaceRun.roots.size := by
+  have sameShape :
+      SameShape allShapeStates[left] allShapeStates[right] :=
+    ShapeState.sameShape_of_ofState_eq sameState
+  have leftMember : allShapeStates[left] ∈ allShapeStatesList := by
+    have member :
+        allShapeStates[left] ∈ allShapeStates.toList :=
+      Array.getElem_mem_toList left.2
+    simpa [allShapeStates] using member
+  have rightMember : allShapeStates[right] ∈ allShapeStatesList := by
+    have member :
+        allShapeStates[right] ∈ allShapeStates.toList :=
+      Array.getElem_mem_toList right.2
+    simpa [allShapeStates] using member
+  have stateEq := generated_sameShape_eq
+    (fullSpace_index_valid left) (fullSpace_index_valid right)
+    leftMember rightMember sameShape
+  have indexEq : left = right := stateInjective stateEq
+  cases indexEq
+  rfl
 
 /-- The run and the analysis use the same deterministic component summaries. -/
 theorem fullSpaceRun_summaries :
@@ -50,8 +110,83 @@ theorem fullSpaceRun_state_count :
     allShapeStates.size = 65880 := by
   simpa [analyze, fullSpaceRun] using analysis_stateCount
 
+private theorem fullSpace_array_member
+    (index : Fin allShapeStates.size) :
+    allShapeStates[index] ∈ allShapeStatesList := by
+  have member :
+      allShapeStates[index] ∈ allShapeStates.toList :=
+    Array.getElem_mem_toList index.2
+  simpa [allShapeStates] using member
+
+private theorem fullSpace_shape_exact_of_injective
+    (stateInjective :
+      Function.Injective
+        (fun index : Fin allShapeStates.size => allShapeStates[index]))
+    (validAt : ∀ index : Fin allShapeStates.size,
+      ValidState allShapeStates[index])
+    {left right : Fin allShapeStates.size}
+    (sameState :
+      ShapeState.ofState ⟨allShapeStates[left], validAt left⟩ =
+        ShapeState.ofState ⟨allShapeStates[right], validAt right⟩) :
+    fullSpaceRun.componentOf.getD left.1 fullSpaceRun.roots.size =
+      fullSpaceRun.componentOf.getD right.1 fullSpaceRun.roots.size := by
+  have sameShape :
+      SameShape allShapeStates[left] allShapeStates[right] :=
+    ShapeState.sameShape_of_ofState_eq sameState
+  have stateEq : allShapeStates[left] = allShapeStates[right] :=
+    generated_sameShape_eq
+      (validAt left) (validAt right)
+      (fullSpace_array_member left) (fullSpace_array_member right)
+      sameShape
+  have indexEq : left = right := by
+    apply stateInjective
+    exact stateEq
+  cases indexEq
+  rfl
+
+/-- The two non-computational obligations needed by `Lawful` can be assembled
+from the constructive enumeration theorem and injectivity of its indexed
+representatives.  In particular, `shape_exact` is not another DFS claim:
+canonical representative uniqueness reduces it to the injected array. -/
+theorem fullSpace_semanticCertificate_of_injective
+    (stateInjective :
+      Function.Injective
+        (fun index : Fin allShapeStates.size => allShapeStates[index])) :
+    ComponentRun.Lawful.SemanticCertificate
+      allShapeStates fullSpaceRun := by
+  let validAt : ∀ index : Fin allShapeStates.size,
+      ValidState allShapeStates[index] :=
+    fun index =>
+      ComponentRun.Lawful.checkAllValid_sound
+        (by
+          simpa [analyze, ComponentRun.Lawful.checkAllValid] using
+            analysis_allValid)
+        index.2
+  refine {
+    complete := ?_
+    shape_exact := ?_
+  }
+  · intro _ node
+    exact fullSpace_semantic_complete
+  · intro validAt' left right sameState
+    exact fullSpace_shape_exact_of_injective
+      stateInjective validAt' sameState
+
+/-- Once the finite replay checker is supplied, the semantic certificate
+above turns the concrete full-space run into a proof-facing `Lawful` run.
+This theorem does not perform the expensive checker computation itself. -/
+theorem fullSpaceRun_lawful_of_checked
+    (stateInjective :
+      Function.Injective
+        (fun index : Fin allShapeStates.size => allShapeStates[index]))
+    (checked :
+      ComponentRun.Lawful.checkFinite allShapeStates fullSpaceRun = true) :
+    fullSpaceRun.Lawful allShapeStates :=
+  ComponentRun.Lawful.lawful_of_checked checked
+    (fullSpace_semanticCertificate_of_injective stateInjective)
+
 /-- The first component containing the classical layout has the certified
-    executable size. -/
+executable size. -/
 theorem fullSpaceRun_classic_component_size :
     classicComponentSize = 25955 := by
   simpa [classicComponentSize, classicComponentIndex?, componentSummaries] using

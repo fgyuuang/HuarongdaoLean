@@ -209,11 +209,23 @@ ComponentRun.Lawful.continuousClass_card_eq_898_of_certificate
 
 因此，在给定一个满足 `ComponentRun.Lawful` 的有限分割，并证明其分量类型的基数为 `898` 时，`Fintype.card ContinuousClass = 898` 的数学推导已经闭合。当前仍不能无条件把“DFS 返回 898”写成该基数定理，主要还缺少：
 
-1. `EnumerationComplete`：任意合法经典状态都与生成数组中的某个状态 `SameShape`。
+1. `EnumerationComplete` 已经在 `ClassicFullSpaceCompleteness.lean` 中证明，并通过
+   `enumerationComplete_quotient_cover` 转成对 `ShapeState` 数组索引的覆盖。
 2. canonical representative 唯一性：需要把当前 `uniqueKeys` 哈希去重检查提升为 `SameShape` 相等代表的索引唯一性定理。
 3. 将当前原生计算的 `ComponentRun.Lawful`、精确根数组和分量计数打包成最终基数证书。
 
-第一个目标已经作为 Lean 命题显式定义：
+代码中已经提供了不依赖再次全量枚举的组装接口：
+
+```lean
+fullSpace_semanticCertificate_of_injective
+fullSpaceRun_lawful_of_checked
+```
+
+它们把 `EnumerationComplete`、数组代表元索引单射和有限
+`checkFinite` 证书分层连接起来。当前未将 `uniqueKeys` 自动当作数学单射，
+因为哈希表的可执行去重还需要一个独立的 key soundness 引理。
+
+该命题的定义仍为：
 
 ```lean
 def EnumerationComplete : Prop :=
@@ -236,9 +248,8 @@ Fintype.card ContinuousClass = 898
 
 ## 9. 后续数学问题
 
-1. 完成 `EnumerationComplete` 的结构性证明。
-2. 完成 canonical representative 唯一性和哈希证书 soundness。
-3. 将已认证 DFS 分类推出为 `Fintype.card ContinuousClass = 898`。
-4. 认证 Klein 四元群在连续分量集合上的 `230` 个轨道，而不只在导出程序中计算。
-5. 对 25,955 大分量认证桥、割点、双连通块和“关羽让路”必经门。
-6. 把可交换动作形成的正方形补成 cubical complex，研究局部维数、循环空间和基本群。
+1. 完成 canonical representative 唯一性和哈希证书 soundness。
+2. 将已认证 DFS 分类推出为 `Fintype.card ContinuousClass = 898`。
+3. 认证 Klein 四元群在连续分量集合上的 `230` 个轨道，而不只在导出程序中计算。
+4. 对 25,955 大分量认证桥、割点、双连通块和“关羽让路”必经门。
+5. 把可交换动作形成的正方形补成 cubical complex，研究局部维数、循环空间和基本群。

@@ -18,7 +18,7 @@
         <option value="mirror">镜像商</option>
         <option value="corridor">决策骨架</option>
       </select>
-      <a class="full-space-entry" href="full-space.html">全空间</a>
+      <a class="full-space-entry" href="full-space.html?from=main" title="查看 898 个连续分量的全空间总览" aria-label="打开全空间预览"><span aria-hidden="true">◈</span><span>全空间预览</span></a>
     </label>
     <div class="metrics">
       <span><b id="state-count">--</b> 状态</span><span><b id="edge-count">--</b> 转换</span><span><b id="depth-count">--</b> 层</span>
@@ -63,7 +63,7 @@
 
     <section class="graph-panel">
       <div class="graph-toolbar">
-        <div class="view-tabs"><button class="active" data-mode="overview">参考全览</button><button data-mode="force">3D 力导向</button><button data-mode="explore">局部探索</button><button data-mode="topology">拓扑样本</button></div>
+        <div class="view-tabs"><button class="active" data-mode="overview">参考全览</button><button data-mode="force">3D 力导向</button><button data-mode="explore">局部探索</button><button data-mode="topology">拓扑样本</button><button data-mode="ring">最短路环岛</button></div>
         <div class="route-tools">
           <button id="locate-current" class="tool-icon" title="快速定位当前状态">⌖</button>
           <button id="pick-start" class="route-pick" title="点击后在图中选择固定起点"><span>固定起点</span><b id="route-start-id">#0</b></button>
@@ -112,6 +112,36 @@
           <aside class="local-topology-analysis"><strong>拓扑解释</strong><p>红色为中心；绿色和金色区分移除中心后的两个连通分支；半透明红面是动作交换形成的二维方形胞腔。填入方形后仍有两个独立的一维环，没有二维空腔。</p><ol class="local-square-list"><li class="local-topology-loading">正在提取局部子图</li></ol><code>SquareAt state1409 a b · H₁(F₂) ≅ F₂²</code></aside>
           <div class="local-topology-legend"><span><i class="center"></i>中心</span><span><i class="branch-a"></i>分支 A</span><span><i class="branch-b"></i>分支 B</span><span><i class="square"></i>交换方形</span></div>
           <div class="local-topology-tooltip"></div>
+        </div>
+        <div id="ring-island-view" class="ring-island-view" hidden>
+          <header class="ring-analysis-heading">
+            <div><small>SHORTEST-PATH DAG · FORMAL TOPOLOGY</small><h2>最短路环岛识别</h2><p>在满足 dist(s,u) + dist(u,t) = d 的最短路 DAG 中，寻找分叉后首次汇合的等长内部不交支路。</p></div>
+            <div class="ring-analysis-actions"><button id="ring-analysis-fit" title="恢复环岛视图">⌖</button><button id="ring-analysis-go-goal" title="播放一条完整最短路径">▶ 到终点</button></div>
+          </header>
+          <div class="ring-metrics" aria-label="最短路拓扑统计">
+            <div><span>最短长度</span><strong id="ring-dag-distance">--</strong><small>步</small></div>
+            <div><span>最短路 DAG</span><strong id="ring-dag-count">--</strong><small>节点</small></div>
+            <div><span>分叉点</span><strong id="ring-branch-count">--</strong><small>个</small></div>
+            <div><span>汇合点</span><strong id="ring-merge-count">--</strong><small>个</small></div>
+            <div><span>环岛候选</span><strong id="ring-square-count">--</strong><small>个</small></div>
+            <div><span>最短路径</span><strong id="ring-path-count">--</strong><small>条</small></div>
+          </div>
+          <div class="ring-analysis-body">
+            <section class="ring-diagram-panel">
+              <div class="ring-panel-heading"><div><small>FIRST MINIMAL ISLAND</small><h3>第一个可交换环岛</h3></div><span id="ring-proof-status">等待分析</span></div>
+              <div id="ring-diagram" class="ring-diagram"></div>
+              <div class="ring-legend"><span><i class="ring-entry-dot"></i>入口 / 分叉</span><span><i class="ring-upper-dot"></i>上支路</span><span><i class="ring-lower-dot"></i>下支路</span><span><i class="ring-exit-dot"></i>出口 / 汇合</span></div>
+            </section>
+            <aside class="ring-analysis-side">
+              <section><h3>环岛判据</h3><ol><li>入口相同、出口相同</li><li>两支路长度相等且大于 0</li><li>动作序列不同</li><li>内部状态除入口、出口外不相交</li></ol></section>
+              <section><h3>形式化对象</h3><code>RingIsland task entry exit</code><code>closedWalk</code><code>two_shortest_walks_of_ring_island</code></section>
+              <section><h3>检测结果</h3><p id="ring-analysis-note">正在从 Lean 导出的图数据提取最短路 DAG。</p></section>
+            </aside>
+          </div>
+          <section class="ring-candidate-list">
+            <header><div><small>BRANCH / MERGE CANDIDATES</small><h3>可识别的分叉与汇合</h3></div><span>点击一行定位并播放</span></header>
+            <ol id="ring-candidate-list"><li class="ring-list-loading">正在分析最短路 DAG</li></ol>
+          </section>
         </div>
         <div id="node-tooltip" class="node-tooltip"></div>
         <div id="force3d-actions" class="force3d-actions" hidden>

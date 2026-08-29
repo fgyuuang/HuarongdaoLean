@@ -212,17 +212,28 @@ ComponentRun.Lawful.continuousClass_card_eq_898_of_certificate
 
 1. **生成器完备性**
 
-   证明：
+   已在 `Huarongdao/ClassicFullSpaceCompleteness.lean` 证明：
 
    ```lean
    EnumerationComplete
    ```
 
-   即任意 `ValidClassicState` 都与 `allShapeStatesList` 中某个规范代表 `SameShape`。
+   即任意 `ValidClassicState` 都与 `allShapeStatesList` 中某个规范代表 `SameShape`。同时已证明其到数组索引覆盖的桥 `enumerationComplete_quotient_cover`。
 
 2. **规范代表唯一性**
 
-   证明同形相等的两个生成代表具有相同的有限状态索引。当前的 `uniqueKeys` 是哈希集合上的可执行去重检查，还需要独立的键 soundness 或直接的 canonical representative 唯一性定理。
+   证明同形相等的两个生成代表具有相同的有限状态索引。当前的 `uniqueKeys` 是哈希集合上的可执行去重检查，仍需要独立的键 soundness 或直接的 canonical representative 唯一性定理。
+
+   当前接口已将这一缺口显式化：
+
+   ```lean
+   fullSpace_semanticCertificate_of_injective
+   fullSpaceRun_lawful_of_checked
+   ```
+
+   前者把代表元索引单射与完备性组装为语义证书，后者再接收
+   `checkFinite allShapeStates fullSpaceRun = true` 生成 `ComponentRun.Lawful`。
+   因此后续只需分别提供“索引单射”和“有限 checker 成功”两个证书。
 
 3. **DFS 索引级证书**
 
@@ -234,7 +245,7 @@ ComponentRun.Lawful.continuousClass_card_eq_898_of_certificate
    - 根标签等于分量编号；
    - 每个非根节点有严格降秩的合法父边；
    - 所有合法后继都回到同一标签；
-   - 所有形状状态都被覆盖；
+   - 所有形状状态都被覆盖（生成器完备性已单独证明）；
    - 同一 `ShapeState` 的规范代表不会占用两个索引。
 
 ### 已有 checker 的 soundness 接口
@@ -249,10 +260,9 @@ checkLabelClosed_sound
 ComponentRun.Lawful.checkLabelsBounded_sound
 ComponentRun.Lawful.checkRootsBounded_sound
 ComponentRun.Lawful.checkRootLabels_sound
-enumerationComplete_quotient_cover
 ```
 
-这些定理把布尔检查结果转换成证明命题；它们不替代 `EnumerationComplete` 和 canonical 唯一性证明。
+`enumerationComplete_quotient_cover` 现在位于 `ClassicFullSpace.lean`。这些定理把布尔检查结果转换成证明命题；它们不替代 canonical representative 唯一性证明和 `ComponentRun.Lawful` 的最终聚合。
 
 ## 9. 展示时可直接使用的最小定理链
 
@@ -287,10 +297,10 @@ sameShapeStepLift
 ### 全空间 898 目标
 
 ```lean
-EnumerationComplete
-  + canonical representative uniqueness
-  + ComponentRun.Lawful
-  + componentCount = 898
+EnumerationComplete                         [已证明]
+  + canonical representative uniqueness      [待完成]
+  + ComponentRun.Lawful                      [待由证书聚合]
+  + componentCount = 898                     [已由 native_decide 证明]
   -> continuousClass_card_eq_898_of_certificate
 ```
 
@@ -298,7 +308,9 @@ EnumerationComplete
 
 - [`Huarongdao/ClassicFullSpace.lean`](../Huarongdao/ClassicFullSpace.lean)：全形状空间枚举和 DFS 数据结构
 - [`Huarongdao/ClassicFullSpaceSoundness.lean`](../Huarongdao/ClassicFullSpaceSoundness.lean)：DFS 语义 soundness 和基数桥
+- [`Huarongdao/ClassicFullSpaceCompleteness.lean`](../Huarongdao/ClassicFullSpaceCompleteness.lean)：规范枚举的结构性完备性证明
 - [`Huarongdao/ClassicFullSpaceCertificate.lean`](../Huarongdao/ClassicFullSpaceCertificate.lean)：65,880、898 等隔离原生证书
+- [`Huarongdao/ClassicContinuousClassCard.lean`](../Huarongdao/ClassicContinuousClassCard.lean)：隔离的连续分量基数和经典大分量计数接口
 - [`Huarongdao/StateSpaceConnectivity.lean`](../Huarongdao/StateSpaceConnectivity.lean)：可逆可达性、连通分量和 Mathlib 图论桥
 - [`Huarongdao/CaoProjection.lean`](../Huarongdao/CaoProjection.lean)：曹操位置观测和位置商
 - [`docs/FULL_SHAPE_SPACE.md`](FULL_SHAPE_SPACE.md)：全形状空间计算记录和剩余证明缺口
