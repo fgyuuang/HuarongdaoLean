@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "kind": "huarongdao-state-space-manifest",
-  "generatedAt": "2026-08-29T06:10:28.743Z",
-  "gitRevision": "1923593ae8e38f960b29216ab0150252ee8580bd",
+  "generatedAt": "2026-08-29T06:38:30.395Z",
+  "gitRevision": "cba507e73cc16ced0b7ac97c5c21b0b836be7a59",
   "toolchain": {
     "lean": "leanprover/lean4:v4.33.1",
     "mathlibRevision": "v4.33.1"
@@ -23,16 +23,16 @@
     "lakefile.toml": {
       "path": "lakefile.toml",
       "present": true,
-      "bytes": 767,
-      "sha256": "346183d0b3cab7047b159663aa2adec3bcd1f96648ab7c0851ecb49f4a7d55c9",
-      "modifiedAt": "2026-08-28T17:10:05.850Z"
+      "bytes": 774,
+      "sha256": "9b12b6079c2e5c3cf804626fc0bded7970d78b40da2681498c9664fbd5b719ff",
+      "modifiedAt": "2026-08-29T06:36:11.523Z"
     },
     "Huarongdao/Model.lean": {
       "path": "Huarongdao/Model.lean",
       "present": true,
       "bytes": 5641,
       "sha256": "d17df5f38e4e70214fca74764083535c367965df468a602eeee1a8fa277b7e0a",
-      "modifiedAt": "2026-08-29T04:29:18.701Z"
+      "modifiedAt": "2026-08-29T06:36:11.469Z"
     },
     "Huarongdao/Transition.lean": {
       "path": "Huarongdao/Transition.lean",
@@ -53,7 +53,7 @@
       "present": true,
       "bytes": 13469,
       "sha256": "d1c5072785327deb4ad5f3fe6e69e1942765876de766e7b92dfa40489c9bdef1",
-      "modifiedAt": "2026-08-29T01:28:28.052Z"
+      "modifiedAt": "2026-08-29T06:36:11.447Z"
     },
     "Huarongdao/ClassicFullSpaceCertificate.lean": {
       "path": "Huarongdao/ClassicFullSpaceCertificate.lean",
@@ -74,7 +74,7 @@
       "present": true,
       "bytes": 23931,
       "sha256": "be6db1fa0685ad9c5c03b17a659fd88f01eb470ab1f1127e215aeefc15ca6a7d",
-      "modifiedAt": "2026-08-28T22:10:37.200Z"
+      "modifiedAt": "2026-08-29T06:36:11.451Z"
     },
     "Huarongdao/ClassicComponentSymmetry.lean": {
       "path": "Huarongdao/ClassicComponentSymmetry.lean",
@@ -95,28 +95,28 @@
       "present": true,
       "bytes": 16834,
       "sha256": "b224062d260ec4941953f39e0520992ac83d04f3c9183ecfc670ec0d94b23929",
-      "modifiedAt": "2026-08-29T02:58:43.116Z"
+      "modifiedAt": "2026-08-29T06:36:11.444Z"
     },
     "Huarongdao/ClassicFullSpaceCachedCertificate.lean": {
       "path": "Huarongdao/ClassicFullSpaceCachedCertificate.lean",
       "present": true,
       "bytes": 3963,
       "sha256": "136326256c9e8cbf67554ed063c1e8b1eb0c4690956f6e0930135c7285457a51",
-      "modifiedAt": "2026-08-29T02:58:30.939Z"
+      "modifiedAt": "2026-08-29T06:36:11.449Z"
     },
     "scripts/state-space-cache.mjs": {
       "path": "scripts/state-space-cache.mjs",
       "present": true,
       "bytes": 12883,
       "sha256": "feb7fff323005a3a8d82668a2321d6e8249cd1cd6f48f6019618d4fca2eb4973",
-      "modifiedAt": "2026-08-29T06:09:50.326Z"
+      "modifiedAt": "2026-08-29T06:36:11.537Z"
     },
     "package.json": {
       "path": "package.json",
       "present": true,
       "bytes": 2141,
       "sha256": "4498868bd7ac158f61109d4d09865a38e85409c19729a759bd18bbf76ffa622f",
-      "modifiedAt": "2026-08-29T04:15:20.827Z"
+      "modifiedAt": "2026-08-29T06:36:11.527Z"
     },
     "FullSpaceMain.lean": {
       "path": "FullSpaceMain.lean",
@@ -130,7 +130,7 @@
       "present": true,
       "bytes": 7421,
       "sha256": "5092de95b6c6660a71a3ed4e5fda002202637db3230acdc525bf66d3f9436741",
-      "modifiedAt": "2026-08-29T04:15:20.815Z"
+      "modifiedAt": "2026-08-29T06:36:11.474Z"
     },
     "ExportMain.lean": {
       "path": "ExportMain.lean",
@@ -222,16 +222,16 @@
         "lakefile.toml": {
           "path": "lakefile.toml",
           "present": true,
-          "bytes": 767,
-          "sha256": "346183d0b3cab7047b159663aa2adec3bcd1f96648ab7c0851ecb49f4a7d55c9",
-          "modifiedAt": "2026-08-28T17:10:05.850Z"
+          "bytes": 774,
+          "sha256": "9b12b6079c2e5c3cf804626fc0bded7970d78b40da2681498c9664fbd5b719ff",
+          "modifiedAt": "2026-08-29T06:36:11.523Z"
         },
         "Huarongdao/Model.lean": {
           "path": "Huarongdao/Model.lean",
           "present": true,
           "bytes": 5641,
           "sha256": "d17df5f38e4e70214fca74764083535c367965df468a602eeee1a8fa277b7e0a",
-          "modifiedAt": "2026-08-29T04:29:18.701Z"
+          "modifiedAt": "2026-08-29T06:36:11.469Z"
         },
         "Huarongdao/Transition.lean": {
           "path": "Huarongdao/Transition.lean",
@@ -252,7 +252,7 @@
           "present": true,
           "bytes": 13469,
           "sha256": "d1c5072785327deb4ad5f3fe6e69e1942765876de766e7b92dfa40489c9bdef1",
-          "modifiedAt": "2026-08-29T01:28:28.052Z"
+          "modifiedAt": "2026-08-29T06:36:11.447Z"
         },
         "Huarongdao/ClassicFullSpaceCertificate.lean": {
           "path": "Huarongdao/ClassicFullSpaceCertificate.lean",
@@ -273,7 +273,7 @@
           "present": true,
           "bytes": 23931,
           "sha256": "be6db1fa0685ad9c5c03b17a659fd88f01eb470ab1f1127e215aeefc15ca6a7d",
-          "modifiedAt": "2026-08-28T22:10:37.200Z"
+          "modifiedAt": "2026-08-29T06:36:11.451Z"
         },
         "Huarongdao/ClassicComponentSymmetry.lean": {
           "path": "Huarongdao/ClassicComponentSymmetry.lean",
@@ -294,28 +294,28 @@
           "present": true,
           "bytes": 16834,
           "sha256": "b224062d260ec4941953f39e0520992ac83d04f3c9183ecfc670ec0d94b23929",
-          "modifiedAt": "2026-08-29T02:58:43.116Z"
+          "modifiedAt": "2026-08-29T06:36:11.444Z"
         },
         "Huarongdao/ClassicFullSpaceCachedCertificate.lean": {
           "path": "Huarongdao/ClassicFullSpaceCachedCertificate.lean",
           "present": true,
           "bytes": 3963,
           "sha256": "136326256c9e8cbf67554ed063c1e8b1eb0c4690956f6e0930135c7285457a51",
-          "modifiedAt": "2026-08-29T02:58:30.939Z"
+          "modifiedAt": "2026-08-29T06:36:11.449Z"
         },
         "scripts/state-space-cache.mjs": {
           "path": "scripts/state-space-cache.mjs",
           "present": true,
           "bytes": 12883,
           "sha256": "feb7fff323005a3a8d82668a2321d6e8249cd1cd6f48f6019618d4fca2eb4973",
-          "modifiedAt": "2026-08-29T06:09:50.326Z"
+          "modifiedAt": "2026-08-29T06:36:11.537Z"
         },
         "package.json": {
           "path": "package.json",
           "present": true,
           "bytes": 2141,
           "sha256": "4498868bd7ac158f61109d4d09865a38e85409c19729a759bd18bbf76ffa622f",
-          "modifiedAt": "2026-08-29T04:15:20.827Z"
+          "modifiedAt": "2026-08-29T06:36:11.527Z"
         },
         "FullSpaceMain.lean": {
           "path": "FullSpaceMain.lean",
@@ -381,16 +381,16 @@
         "lakefile.toml": {
           "path": "lakefile.toml",
           "present": true,
-          "bytes": 767,
-          "sha256": "346183d0b3cab7047b159663aa2adec3bcd1f96648ab7c0851ecb49f4a7d55c9",
-          "modifiedAt": "2026-08-28T17:10:05.850Z"
+          "bytes": 774,
+          "sha256": "9b12b6079c2e5c3cf804626fc0bded7970d78b40da2681498c9664fbd5b719ff",
+          "modifiedAt": "2026-08-29T06:36:11.523Z"
         },
         "Huarongdao/Model.lean": {
           "path": "Huarongdao/Model.lean",
           "present": true,
           "bytes": 5641,
           "sha256": "d17df5f38e4e70214fca74764083535c367965df468a602eeee1a8fa277b7e0a",
-          "modifiedAt": "2026-08-29T04:29:18.701Z"
+          "modifiedAt": "2026-08-29T06:36:11.469Z"
         },
         "Huarongdao/Transition.lean": {
           "path": "Huarongdao/Transition.lean",
@@ -411,7 +411,7 @@
           "present": true,
           "bytes": 13469,
           "sha256": "d1c5072785327deb4ad5f3fe6e69e1942765876de766e7b92dfa40489c9bdef1",
-          "modifiedAt": "2026-08-29T01:28:28.052Z"
+          "modifiedAt": "2026-08-29T06:36:11.447Z"
         },
         "Huarongdao/ClassicFullSpaceCertificate.lean": {
           "path": "Huarongdao/ClassicFullSpaceCertificate.lean",
@@ -432,7 +432,7 @@
           "present": true,
           "bytes": 23931,
           "sha256": "be6db1fa0685ad9c5c03b17a659fd88f01eb470ab1f1127e215aeefc15ca6a7d",
-          "modifiedAt": "2026-08-28T22:10:37.200Z"
+          "modifiedAt": "2026-08-29T06:36:11.451Z"
         },
         "Huarongdao/ClassicComponentSymmetry.lean": {
           "path": "Huarongdao/ClassicComponentSymmetry.lean",
@@ -453,35 +453,35 @@
           "present": true,
           "bytes": 16834,
           "sha256": "b224062d260ec4941953f39e0520992ac83d04f3c9183ecfc670ec0d94b23929",
-          "modifiedAt": "2026-08-29T02:58:43.116Z"
+          "modifiedAt": "2026-08-29T06:36:11.444Z"
         },
         "Huarongdao/ClassicFullSpaceCachedCertificate.lean": {
           "path": "Huarongdao/ClassicFullSpaceCachedCertificate.lean",
           "present": true,
           "bytes": 3963,
           "sha256": "136326256c9e8cbf67554ed063c1e8b1eb0c4690956f6e0930135c7285457a51",
-          "modifiedAt": "2026-08-29T02:58:30.939Z"
+          "modifiedAt": "2026-08-29T06:36:11.449Z"
         },
         "scripts/state-space-cache.mjs": {
           "path": "scripts/state-space-cache.mjs",
           "present": true,
           "bytes": 12883,
           "sha256": "feb7fff323005a3a8d82668a2321d6e8249cd1cd6f48f6019618d4fca2eb4973",
-          "modifiedAt": "2026-08-29T06:09:50.326Z"
+          "modifiedAt": "2026-08-29T06:36:11.537Z"
         },
         "package.json": {
           "path": "package.json",
           "present": true,
           "bytes": 2141,
           "sha256": "4498868bd7ac158f61109d4d09865a38e85409c19729a759bd18bbf76ffa622f",
-          "modifiedAt": "2026-08-29T04:15:20.827Z"
+          "modifiedAt": "2026-08-29T06:36:11.527Z"
         },
         "Huarongdao/Quotient.lean": {
           "path": "Huarongdao/Quotient.lean",
           "present": true,
           "bytes": 7421,
           "sha256": "5092de95b6c6660a71a3ed4e5fda002202637db3230acdc525bf66d3f9436741",
-          "modifiedAt": "2026-08-29T04:15:20.815Z"
+          "modifiedAt": "2026-08-29T06:36:11.474Z"
         },
         "ExportMain.lean": {
           "path": "ExportMain.lean",
@@ -1535,16 +1535,16 @@
         "lakefile.toml": {
           "path": "lakefile.toml",
           "present": true,
-          "bytes": 767,
-          "sha256": "346183d0b3cab7047b159663aa2adec3bcd1f96648ab7c0851ecb49f4a7d55c9",
-          "modifiedAt": "2026-08-28T17:10:05.850Z"
+          "bytes": 774,
+          "sha256": "9b12b6079c2e5c3cf804626fc0bded7970d78b40da2681498c9664fbd5b719ff",
+          "modifiedAt": "2026-08-29T06:36:11.523Z"
         },
         "Huarongdao/Model.lean": {
           "path": "Huarongdao/Model.lean",
           "present": true,
           "bytes": 5641,
           "sha256": "d17df5f38e4e70214fca74764083535c367965df468a602eeee1a8fa277b7e0a",
-          "modifiedAt": "2026-08-29T04:29:18.701Z"
+          "modifiedAt": "2026-08-29T06:36:11.469Z"
         },
         "Huarongdao/Transition.lean": {
           "path": "Huarongdao/Transition.lean",
@@ -1565,7 +1565,7 @@
           "present": true,
           "bytes": 13469,
           "sha256": "d1c5072785327deb4ad5f3fe6e69e1942765876de766e7b92dfa40489c9bdef1",
-          "modifiedAt": "2026-08-29T01:28:28.052Z"
+          "modifiedAt": "2026-08-29T06:36:11.447Z"
         },
         "Huarongdao/ClassicFullSpaceCertificate.lean": {
           "path": "Huarongdao/ClassicFullSpaceCertificate.lean",
@@ -1586,7 +1586,7 @@
           "present": true,
           "bytes": 23931,
           "sha256": "be6db1fa0685ad9c5c03b17a659fd88f01eb470ab1f1127e215aeefc15ca6a7d",
-          "modifiedAt": "2026-08-28T22:10:37.200Z"
+          "modifiedAt": "2026-08-29T06:36:11.451Z"
         },
         "Huarongdao/ClassicComponentSymmetry.lean": {
           "path": "Huarongdao/ClassicComponentSymmetry.lean",
@@ -1607,35 +1607,35 @@
           "present": true,
           "bytes": 16834,
           "sha256": "b224062d260ec4941953f39e0520992ac83d04f3c9183ecfc670ec0d94b23929",
-          "modifiedAt": "2026-08-29T02:58:43.116Z"
+          "modifiedAt": "2026-08-29T06:36:11.444Z"
         },
         "Huarongdao/ClassicFullSpaceCachedCertificate.lean": {
           "path": "Huarongdao/ClassicFullSpaceCachedCertificate.lean",
           "present": true,
           "bytes": 3963,
           "sha256": "136326256c9e8cbf67554ed063c1e8b1eb0c4690956f6e0930135c7285457a51",
-          "modifiedAt": "2026-08-29T02:58:30.939Z"
+          "modifiedAt": "2026-08-29T06:36:11.449Z"
         },
         "scripts/state-space-cache.mjs": {
           "path": "scripts/state-space-cache.mjs",
           "present": true,
           "bytes": 12883,
           "sha256": "feb7fff323005a3a8d82668a2321d6e8249cd1cd6f48f6019618d4fca2eb4973",
-          "modifiedAt": "2026-08-29T06:09:50.326Z"
+          "modifiedAt": "2026-08-29T06:36:11.537Z"
         },
         "package.json": {
           "path": "package.json",
           "present": true,
           "bytes": 2141,
           "sha256": "4498868bd7ac158f61109d4d09865a38e85409c19729a759bd18bbf76ffa622f",
-          "modifiedAt": "2026-08-29T04:15:20.827Z"
+          "modifiedAt": "2026-08-29T06:36:11.527Z"
         },
         "Huarongdao/Quotient.lean": {
           "path": "Huarongdao/Quotient.lean",
           "present": true,
           "bytes": 7421,
           "sha256": "5092de95b6c6660a71a3ed4e5fda002202637db3230acdc525bf66d3f9436741",
-          "modifiedAt": "2026-08-29T04:15:20.815Z"
+          "modifiedAt": "2026-08-29T06:36:11.474Z"
         },
         "Huarongdao/MirrorQuotient.lean": {
           "path": "Huarongdao/MirrorQuotient.lean",
@@ -3251,16 +3251,16 @@
         "lakefile.toml": {
           "path": "lakefile.toml",
           "present": true,
-          "bytes": 767,
-          "sha256": "346183d0b3cab7047b159663aa2adec3bcd1f96648ab7c0851ecb49f4a7d55c9",
-          "modifiedAt": "2026-08-28T17:10:05.850Z"
+          "bytes": 774,
+          "sha256": "9b12b6079c2e5c3cf804626fc0bded7970d78b40da2681498c9664fbd5b719ff",
+          "modifiedAt": "2026-08-29T06:36:11.523Z"
         },
         "Huarongdao/Model.lean": {
           "path": "Huarongdao/Model.lean",
           "present": true,
           "bytes": 5641,
           "sha256": "d17df5f38e4e70214fca74764083535c367965df468a602eeee1a8fa277b7e0a",
-          "modifiedAt": "2026-08-29T04:29:18.701Z"
+          "modifiedAt": "2026-08-29T06:36:11.469Z"
         },
         "Huarongdao/Transition.lean": {
           "path": "Huarongdao/Transition.lean",
@@ -3281,7 +3281,7 @@
           "present": true,
           "bytes": 13469,
           "sha256": "d1c5072785327deb4ad5f3fe6e69e1942765876de766e7b92dfa40489c9bdef1",
-          "modifiedAt": "2026-08-29T01:28:28.052Z"
+          "modifiedAt": "2026-08-29T06:36:11.447Z"
         },
         "Huarongdao/ClassicFullSpaceCertificate.lean": {
           "path": "Huarongdao/ClassicFullSpaceCertificate.lean",
@@ -3302,7 +3302,7 @@
           "present": true,
           "bytes": 23931,
           "sha256": "be6db1fa0685ad9c5c03b17a659fd88f01eb470ab1f1127e215aeefc15ca6a7d",
-          "modifiedAt": "2026-08-28T22:10:37.200Z"
+          "modifiedAt": "2026-08-29T06:36:11.451Z"
         },
         "Huarongdao/ClassicComponentSymmetry.lean": {
           "path": "Huarongdao/ClassicComponentSymmetry.lean",
@@ -3323,35 +3323,35 @@
           "present": true,
           "bytes": 16834,
           "sha256": "b224062d260ec4941953f39e0520992ac83d04f3c9183ecfc670ec0d94b23929",
-          "modifiedAt": "2026-08-29T02:58:43.116Z"
+          "modifiedAt": "2026-08-29T06:36:11.444Z"
         },
         "Huarongdao/ClassicFullSpaceCachedCertificate.lean": {
           "path": "Huarongdao/ClassicFullSpaceCachedCertificate.lean",
           "present": true,
           "bytes": 3963,
           "sha256": "136326256c9e8cbf67554ed063c1e8b1eb0c4690956f6e0930135c7285457a51",
-          "modifiedAt": "2026-08-29T02:58:30.939Z"
+          "modifiedAt": "2026-08-29T06:36:11.449Z"
         },
         "scripts/state-space-cache.mjs": {
           "path": "scripts/state-space-cache.mjs",
           "present": true,
           "bytes": 12883,
           "sha256": "feb7fff323005a3a8d82668a2321d6e8249cd1cd6f48f6019618d4fca2eb4973",
-          "modifiedAt": "2026-08-29T06:09:50.326Z"
+          "modifiedAt": "2026-08-29T06:36:11.537Z"
         },
         "package.json": {
           "path": "package.json",
           "present": true,
           "bytes": 2141,
           "sha256": "4498868bd7ac158f61109d4d09865a38e85409c19729a759bd18bbf76ffa622f",
-          "modifiedAt": "2026-08-29T04:15:20.827Z"
+          "modifiedAt": "2026-08-29T06:36:11.527Z"
         },
         "Huarongdao/Quotient.lean": {
           "path": "Huarongdao/Quotient.lean",
           "present": true,
           "bytes": 7421,
           "sha256": "5092de95b6c6660a71a3ed4e5fda002202637db3230acdc525bf66d3f9436741",
-          "modifiedAt": "2026-08-29T04:15:20.815Z"
+          "modifiedAt": "2026-08-29T06:36:11.474Z"
         },
         "Huarongdao/MirrorQuotient.lean": {
           "path": "Huarongdao/MirrorQuotient.lean",
