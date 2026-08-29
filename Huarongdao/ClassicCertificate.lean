@@ -9,6 +9,19 @@ namespace Huarongdao
 def classicQuotientGraph : Graph :=
   enumerate classic
 
+ /-- Certificate that every representative in the classic quotient array is a
+    valid puzzle state. -/
+structure ClassicQuotientGraphCertificate (graph : Graph) where
+  valid : ∀ vertex : Fin graph.states.size, ValidState graph.states[vertex]
+
+/-- Native evaluation checks the certificate conditions for the complete
+    classic quotient graph. -/
+def classicQuotientGraphCertificate : ClassicQuotientGraphCertificate classicQuotientGraph where
+  valid := by
+    set_option maxHeartbeats 0 in
+    intro vertex
+    native_decide
+
 /-- Native evaluation checks the complete finite graph conditions consumed by
     the generic soundness theorem in `Search.lean`. -/
 theorem classicQuotientLowerBound_checked :

@@ -78,6 +78,103 @@ def caoPositionTask :
     StateSpace.Task CaoPositionState Unit :=
   caoPositionObservation.quotientTask
 
+/- A projected edge is a genuine adjacency between two distinct Cao Cao
+  position classes.  This is the twelve-point relation used by the coarse
+  position plot; it is deliberately defined from the concrete transition
+  image, rather than from the drawing. -/
+def CaoClassAdjacent (source target : CaoPositionState) : Prop :=
+  source ≠ target ∧ caoPositionTask.step source () target
+
+def CaoClassShortestDistanceOne
+    (source target : CaoPositionState) : Prop :=
+  (∃ walk : caoPositionTask.Walk source target, walk.length = 1) ∧
+    ∀ candidate, (∃ walk : caoPositionTask.Walk source target,
+      walk.length = candidate) → 1 ≤ candidate
+
+/- This version matches the metric used in the question literally: minimize
+  concrete-path length over all representatives of the two Cao Cao classes. -/
+def CaoClassConcreteDistanceOne
+    (source target : CaoPositionState) : Prop :=
+  (∃ sourceState targetState : ValidClassicState,
+      caoPositionObservation.classOf sourceState = source ∧
+      caoPositionObservation.classOf targetState = target ∧
+      ∃ walk : concrete.Walk sourceState targetState, walk.length = 1) ∧
+    ∀ candidate,
+      (∃ sourceState targetState : ValidClassicState,
+        caoPositionObservation.classOf sourceState = source ∧
+        caoPositionObservation.classOf targetState = target ∧
+        ∃ walk : concrete.Walk sourceState targetState,
+          walk.length = candidate) →
+      1 ≤ candidate
+
+theorem concrete_step_caoClassAdjacent
+    {source target : ValidClassicState} {action : Action}
+    (step : concrete.step source action target)
+    (changes : caoPosition source ≠ caoPosition target) :
+    CaoClassAdjacent
+      (caoPositionObservation.classOf source)
+      (caoPositionObservation.classOf target) := by
+  constructor
+  · intro equalClasses
+    apply changes
+    exact Quotient.exact equalClasses
+  · exact caoPositionObservation.step_of_step step
+
+theorem caoClassAdjacent_shortestWalkLength_one
+    {source target : CaoPositionState}
+    (adjacent : CaoClassAdjacent source target) :
+    CaoClassShortestDistanceOne source target := by
+  constructor
+  · rcases adjacent.2 with
+      ⟨concreteSource, action, concreteTarget, sourceEq, targetEq, step⟩
+    subst source
+    subst target
+    refine ⟨.cons () ?_ (.nil _), ?_⟩
+    · exact ⟨concreteSource, action, concreteTarget, rfl, rfl, step⟩
+    · change 0 + 1 = 1
+      omega
+  · intro candidate candidateWalk
+    rcases candidateWalk with ⟨walk, walkLength⟩
+    cases walk with
+    | nil =>
+        cases candidate with
+        | zero => exact (adjacent.1 rfl).elim
+        | succ n => simp at walkLength
+    | cons first head tail =>
+        cases candidate with
+        | zero => simp [StateSpace.Task.Walk.length] at walkLength
+        | succ n =>
+            simp [StateSpace.Task.Walk.length] at walkLength
+            omega
+
+theorem caoClassAdjacent_concreteDistance_one
+    {source target : CaoPositionState}
+    (adjacent : CaoClassAdjacent source target) :
+    CaoClassConcreteDistanceOne source target := by
+  constructor
+  · rcases adjacent.2 with
+      ⟨sourceState, action, targetState, sourceEq, targetEq, step⟩
+    refine ⟨sourceState, targetState, sourceEq, targetEq,
+      ⟨.cons action step (.nil _), ?_⟩⟩
+    change 0 + 1 = 1
+    omega
+  · intro candidate witness
+    rcases witness with
+      ⟨sourceState, targetState, sourceEq, targetEq, walk, walkLength⟩
+    cases walk with
+    | nil =>
+        cases candidate with
+        | zero =>
+            apply (adjacent.1 ?_).elim
+            exact sourceEq.symm.trans targetEq
+        | succ n => simp at walkLength
+    | cons action step tail =>
+        cases candidate with
+        | zero => simp [StateSpace.Task.Walk.length] at walkLength
+        | succ n =>
+            simp [StateSpace.Task.Walk.length] at walkLength
+            omega
+
 /-- Every concrete move and walk projects to the Cao-position observation. -/
 def concreteToCaoPosition :
     StateSpace.Task.Hom concrete caoPositionTask :=

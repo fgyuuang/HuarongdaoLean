@@ -303,7 +303,8 @@ function showResult(data, validateOnly) {
   const valid = data.validation?.wellFormed === true; setChain('spec', valid ? 'pass' : 'fail');
   if (!valid) { setStatus('invalid', '关卡定义无效'); return; }
   if (validateOnly) { setStatus('valid', '关卡成立 · 可开始搜索'); return; }
-  setChain('search', data.status === 'solved' ? 'pass' : data.status === 'limit' ? 'warn' : data.status === 'unreachable' ? 'fail' : '');
+  const unreachableProof = data.proof?.kind === 'unreachable-certificate' && data.proof?.verified === true;
+  setChain('search', data.status === 'solved' ? 'pass' : data.status === 'limit' ? 'warn' : data.status === 'unreachable' ? (unreachableProof ? 'pass' : 'warn') : '');
   setChain('check', data.proof?.verified ? 'pass' : ''); setChain('exists', data.proof?.verified ? 'pass' : '');
   setStatus(data.status === 'solved' ? 'valid' : data.status === 'limit' ? 'limit' : 'invalid',
     data.status === 'solved' ? (data.stats.algorithm === 'astar' ? 'A* 已找到并验证解' : 'BFS 已找到并验证解') : data.status === 'unreachable' ? '完整状态图中不可达' : data.status === 'limit' ? '达到搜索上限，结论未知' : '关卡定义无效');
@@ -312,8 +313,9 @@ function showResult(data, validateOnly) {
   disposeLabForceGraph(); solution = data.solution; resultData = data; genericGraph = data.graph; genericOutgoing = []; graphCurrent = 0; graphHistory = [0]; graphHistoryEdges = []; playStep = 0; renderSolution(data); initializeGenericGraph();
 }
 function renderSolution(data) {
-  const verified = data.proof?.verified === true; $('lab-proof-badge').textContent = verified ? 'Lean 已重放验证' : '未验证'; $('lab-proof-badge').className = verified ? 'verified' : '';
-  if (!solution) { renderBoard($('lab-play-board'), initialPositions()); $('lab-step-label').textContent = '无路径'; $('lab-actions').replaceChildren(); $('lab-proof-code').textContent = data.status === 'unreachable' ? 'BFS 完整闭包未发现 goalMatches = true 的状态。' : '搜索受资源上限截断，不能推出不可达。'; return; }
+  const verified = data.proof?.verified === true; const unreachableProof = data.proof?.kind === 'unreachable-certificate' && verified; const proofVerified = verified;
+  $('lab-proof-badge').textContent = unreachableProof ? 'Lean 已证明不可达' : verified ? 'Lean 已重放验证' : '未验证'; $('lab-proof-badge').className = proofVerified ? 'verified' : '';
+  if (!solution) { renderBoard($('lab-play-board'), initialPositions()); $('lab-step-label').textContent = '无路径'; $('lab-actions').replaceChildren(); $('lab-proof-code').textContent = unreachableProof ? 'checkClosedGraph + checkNoGoal ⇒ 不存在可达目标状态。' : data.status === 'unreachable' ? 'BFS 已耗尽，但当前返回结果尚未形成内核不可达证书。' : '搜索受资源上限截断，不能推出不可达。'; return; }
   const positions = solution.states[playStep].positions; if(genericGraph) renderCurrentPlayBoard(); else renderBoard($('lab-play-board'), positions);
   $('lab-step-label').textContent = playStep + ' / ' + solution.actions.length; $('lab-prev').disabled = playStep === 0; $('lab-next').disabled = playStep === solution.actions.length;
   const actionList = $('lab-actions'); actionList.innerHTML = solution.actions.map((action, index) => '<button class="' + (playStep === index + 1 ? 'active' : '') + '" data-step="' + (index + 1) + '"><b>' + (index + 1) + '</b><span>块 ' + action.block + ' 向' + directionLabels[action.direction] + '</span><code>tryMove = some state' + (index + 1) + '</code></button>').join('');

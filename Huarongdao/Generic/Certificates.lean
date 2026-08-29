@@ -92,6 +92,39 @@ theorem no_reachable_goal_of_closed_graph
 
 end StateGraph
 
+/-!
+The searcher's `complete` flag is operational metadata. These predicates are
+the proof-facing checks that promote a completed BFS result to a kernel-level
+unreachability claim.
+-/
+
+def SearchResult.closedVerified
+    (spec : PuzzleSpec) (result : SearchResult) : Bool :=
+  result.status == .unreachable &&
+    !result.graph.truncated &&
+    result.graph.checkClosedGraph spec
+
+def SearchResult.noGoalVerified
+    (spec : PuzzleSpec) (result : SearchResult) : Bool :=
+  result.status == .unreachable &&
+    !result.graph.truncated &&
+    result.graph.checkNoGoal spec
+
+def SearchResult.unreachableVerified
+    (spec : PuzzleSpec) (result : SearchResult) : Bool :=
+  result.closedVerified spec && result.noGoalVerified spec
+
+theorem SearchResult.unreachable_verified_sound
+    {spec : PuzzleSpec} {result : SearchResult}
+    (checked : result.unreachableVerified spec = true) :
+    ¬ ∃ state, Reachable spec spec.initial state ∧
+      goalMatches spec state = true := by
+  unfold SearchResult.unreachableVerified at checked
+  rw [Bool.and_eq_true] at checked
+  unfold SearchResult.closedVerified SearchResult.noGoalVerified at checked
+  simp only [Bool.and_eq_true] at checked
+  exact StateGraph.no_reachable_goal_of_closed_graph checked.1.2 checked.2.2
+
 /-- A local ranking argument proving that every solution has length at least
     `bound`. A legal move may increase the rank by at most one. -/
 structure LowerBoundCertificate (spec : PuzzleSpec) (bound : Nat) where

@@ -14,6 +14,7 @@ for (const [expected, args] of Object.entries(cases)) {
   const result = await solve(args);
   if (result.status !== expected) throw new Error(expected + ': received ' + result.status);
   if (expected === 'solved' && (!result.proof?.verified || result.stats.shortestLength !== 3)) throw new Error('solved certificate mismatch');
+  if (expected === 'unreachable' && (result.proof?.kind !== 'unreachable-certificate' || !result.proof?.verified || !result.proof?.closedVerified || !result.proof?.noGoalVerified)) throw new Error('unreachable certificate mismatch');
   if (expected === 'solved' && (result.schemaVersion !== '2' || !result.graph?.edgesVerified)) throw new Error('graph certificate mismatch');
   if (expected === 'solved' && (result.graph.nodes.length !== 30 || result.graph.edges.length !== 112 || !result.graph.complete)) throw new Error('graph enumeration mismatch');
   if (expected === 'limit' && result.graph.complete) throw new Error('limited graph marked complete');
