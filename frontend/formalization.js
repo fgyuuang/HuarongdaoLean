@@ -2,6 +2,7 @@ import {
   evidenceLevels,
   formalStages,
   formalizationStats,
+  modelFormalization,
   kernelComponents,
   sourceFiles,
   theoremDependencyEdges,
@@ -197,6 +198,24 @@ function theoremDependencyGraph() {
   </section>`;
 }
 
+function modelFormalizationSection() {
+  return `<section class="formal-section model-formalization-section" data-formal-section="model-rules">
+    <header class="formal-section-heading">
+      <div><span class="section-kicker">RULES → LEAN DEFINITIONS → FINITE STATE SYSTEM</span><h2>规则的形式化</h2><p class="section-subtitle">先把游戏规则写成可计算定义，再让证明对象复用这些定义。</p></div>
+      <span class="model-source-label"><i></i>${modelFormalization.source}</span>
+    </header>
+    <div class="model-formalization-body">
+      <div class="model-formalization-prose">${modelFormalization.paragraphs.map(paragraph => `<p>${paragraph}</p>`).join('')}</div>
+      <div class="model-formalization-anchors" aria-label="规则形式化对应的 Lean 对象">${modelFormalization.anchors.map(anchor => `
+        <div class="model-anchor">
+          <span class="model-anchor-index">${anchor.index}</span>
+          <div><b>${anchor.title}</b><code>${anchor.lean}</code><p>${anchor.detail}</p></div>
+        </div>`).join('')}</div>
+    </div>
+    <footer class="model-formalization-footer"><span><i class="status-dot"></i>模型层已接入证明链</span><strong>Model → Transition → Quotient → Search</strong></footer>
+  </section>`;
+}
+
 function overviewView() {
   return `${metricMarkup()}
     <section class="formal-summary-banner">
@@ -207,6 +226,7 @@ function overviewView() {
       </div>
       <button class="inline-action" data-formal-view="theorems">查看大定理 <span>→</span></button>
     </section>
+    ${modelFormalizationSection()}
     <section class="formal-section" data-formal-section="overview">
       <header class="formal-section-heading"><div><span class="section-kicker">MATHEMATICAL MODEL → KERNEL OBJECTS</span><h2>形式化主链</h2></div><button class="text-action" data-formal-view="chain">展开依赖图 ↗</button></header>
       <div class="stage-rail">${formalStages.map(stage => stageCard(stage)).join('')}</div>
@@ -356,6 +376,7 @@ function dashboardView() {
       </div>
       <span class="summary-status">主定理已闭合 · 898 接口保留前提</span>
     </section>
+    ${modelFormalizationSection()}
     ${withoutMetrics(chainView())}
     ${withoutMetrics(theoremView())}
     ${withoutMetrics(sourceView())}

@@ -6,6 +6,22 @@ export const formalizationStats = [
   { value: '898', label: 'DFS 连续分量', note: '语义桥仍需 Lawful 实例', accent: 'amber' }
 ];
 
+export const modelFormalization = {
+  paragraphs: [
+    '我们首先在 Lean 4 中定义十个有限棋子、二维自然数坐标、矩形形状和四个移动方向。一个状态只记录每个棋子的左上角位置，而棋子占用的所有格子由形状函数计算得到。',
+    '随后，我们分别定义棋盘边界约束和棋子不重叠约束，并将它们组合成可计算的 valid 布尔检查，同时定义命题形式的 ValidState 供证明使用。',
+    '一次移动先平移目标棋子的左上角，再检查新状态是否合法；只有通过检查的移动才会进入 legalMoves。经典初态的合法性可以由 Lean 内核直接通过 rfl 归约确认。',
+    '最后，我们通过对同形棋子的位置排序构造规范化状态键，为后续的状态空间压缩、对称商、BFS 搜索和最短解证明提供基础。这样，华容道就从一个依赖图示和手工操作的游戏，转化成了一个可以计算、检查和证明的有限状态转移系统。'
+  ],
+  anchors: [
+    { index: '01', title: '棋子与坐标', lean: 'Piece · Pos · Shape', detail: '十个有限棋子使用矩形形状，位置统一记录左上角坐标。' },
+    { index: '02', title: '状态合法性', lean: 'valid · ValidState', detail: '边界约束和不重叠约束分别计算，再组合成布尔检查与命题。' },
+    { index: '03', title: '移动规则', lean: 'Direction · tryMove · legalMoves', detail: '先生成平移后的候选状态，再以合法性检查决定动作是否成立。' },
+    { index: '04', title: '规范化状态键', lean: 'State.key · codesKey', detail: '同形棋子的位置排序后得到规范代表，供压缩、对称商和搜索使用。' }
+  ],
+  source: 'Huarongdao/Model.lean · Huarongdao/Transition.lean · Huarongdao/Quotient.lean'
+};
+
 export const formalStages = [
   {
     id: 'model',
