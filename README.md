@@ -68,6 +68,19 @@ Lean 定理
 
 该样本的正式研究结果、Lean 定理与计算证书边界见 [`LOCAL_TOPOLOGY_RESEARCH.md`](LOCAL_TOPOLOGY_RESEARCH.md)。
 
+### “曹操位于关羽下方”的第三层几何命题
+
+`Huarongdao/CaoGuanGeometry.lean` 将“曹操走到关羽下方”定义为两个条件：曹操的左上角位于更低的行，并且曹操与关羽的水平投影相交。利用目标位置、棋盘边界和不重叠条件，Lean 证明了：任意合法目标状态都满足 `CaoBelowGuanYu`。因此任意经典 `Solution` 的终点都满足该几何关系，进而每条解路径都会访问这个区域：
+
+```lean
+valid_goal_caoBelowGuanYu
+solution_visits_caoBelowGuanYu
+classic_solutionGate_caoBelowGuanYu
+classic116Goal_caoBelowGuanYu
+```
+
+这一定理与 `classic_solutionGate_guanYuClearsCaoSweep` 互补：前者描述终点的几何位置关系，后者描述关羽清空曹操下降扫掠区的操作机制。前端/导出图的回归脚本 `scripts/check-cao-guan-geometry.mjs` 还会逐一检查所有导出的目标状态，防止目标谓词或棋盘规则改变后该关系被意外破坏。
+
 ## 关卡实验室
 
 页面顶部可切换“经典华容道 / 关卡实验室”。实验室支持自定义棋盘宽高、编号块尺寸、部分或完整位置目标、搜索资源上限、解路径回放和 Lean 证明链。初态棋盘和目标棋盘都支持拖动：拖动初态块修改初始坐标；先在编号块行勾选“已约束”，再拖动目标棋盘中的虚线块修改目标坐标。棋盘的每个真正空格会在悬停时显示“+”，点击直接新增一个 1×1 编号块；目标棋盘新增时会自动寻找初态空格并同时建立目标约束。每个块的右下角有拉伸手柄，按棋盘格改变矩形宽高；形状属于 PuzzleSpec，因此初态和目标视图同步更新，并清除旧状态图。取消勾选会删除该块的目标约束。未指定目标的块不受终局位置约束；至少必须指定一个目标。
@@ -381,6 +394,7 @@ Lean 证明侧的共享入口是 `Huarongdao.ClassicFullSpaceCachedCertificate`�
 - `Huarongdao/ClassicCertificate.lean`：经典有限商图的 116 下界、玩家解最短性及统一 `StateSpace.Task` 接口
 - `Huarongdao/Minimality.lean`：势函数最短性定理
 - `Huarongdao/Bottleneck.lean`：必经区域、割集、扫掠区，以及“所有解都到达关羽已清空曹操下降扫掠区的状态”定理
+- `Huarongdao/CaoGuanGeometry.lean`：第三层几何命题，形式化“曹操位于关羽下方”，并证明所有经典解路径都会访问该区域
 - `Huarongdao/ClassicSolution.lean`：116 步内核检查解
 - `Huarongdao/Generic/Model.lean`：通用棋盘、编号块、初态、目标和移动
 - `Huarongdao/Generic/Enumeration.lean`：通用合法动作枚举精确性

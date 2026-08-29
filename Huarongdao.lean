@@ -22,6 +22,7 @@ import Huarongdao.ClassicFullSpaceCompleteness
 import Huarongdao.Minimality
 import Huarongdao.ProofGame
 import Huarongdao.Bottleneck
+import Huarongdao.CaoGuanGeometry
 import Huarongdao.GuanYuYield
 import Huarongdao.GuanYuYieldBridge
 import Huarongdao.GuanYuYieldFiniteCertificate
