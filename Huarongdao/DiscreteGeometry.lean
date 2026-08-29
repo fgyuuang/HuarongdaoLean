@@ -216,14 +216,64 @@ theorem caoFiber_edge_change_is_cao_move
     action.piece = .caoCao :=
   action_eq_caoCao_of_caoPosition_ne step different
 
-/-- Coordinate adjacency is weaker than adjacency in the legal state graph. -/
-theorem caoPosition_adjacent_is_only_a_lower_bound
-    {source target : ValidClassicState}
-    {left right : Nat}
-    (sourcePosition : caoPosition source = ⟨left, right⟩)
-    (targetPosition : caoPosition target = ⟨left + 1, right⟩) :
-    0 ≤ (classicStateGraph).edist source target := by
-  exact bot_le
+/-- The raw Manhattan distance on board coordinates.  This is a geometric
+quantity only; it does not encode occupancy or the shape of a piece. -/
+def coordinateManhattan (left right : Pos) : Nat :=
+  (if left.x ≤ right.x then right.x - left.x else left.x - right.x) +
+    (if left.y ≤ right.y then right.y - left.y else left.y - right.y)
+
+/-- A state-dependent one-step observation relation for the concrete graph. -/
+def caoOneStepToPosition
+    (source : ValidClassicState) (targetPosition : Pos) : Prop :=
+  ∃ action target,
+    concrete.step source action target ∧
+      caoPosition target = targetPosition
+
+/-- The classic initial state and the coordinate immediately below Cao Cao. -/
+def classicInitial : ValidClassicState :=
+  ⟨classic, classic_valid⟩
+
+def classicInitialCaoDownPosition : Pos :=
+  ⟨1, 1⟩
+
+theorem classic_initial_coordinateManhattan_adjacent :
+    coordinateManhattan
+        (caoPosition classicInitial) classicInitialCaoDownPosition = 1 := by
+  native_decide
+
+/-- In the classic initial state, the coordinate directly below Cao Cao is
+Manhattan-adjacent but cannot be reached by one legal concrete move.  Thus
+coordinate adjacency is not sufficient for adjacency in the legal state
+graph. -/
+theorem classic_initial_coordinate_adjacent_not_one_step :
+    ¬ caoOneStepToPosition
+        classicInitial classicInitialCaoDownPosition := by
+  intro witness
+  rcases witness with ⟨action, target, step, targetObservation⟩
+  have changed :
+      caoPosition classicInitial ≠ caoPosition target := by
+    rw [targetObservation]
+    native_decide
+  have actionIsCao :
+      action.piece = .caoCao :=
+    caoFiber_edge_change_is_cao_move step changed
+  rcases action with ⟨piece, direction⟩
+  simp only at actionIsCao
+  cases actionIsCao
+  have impossible :
+      tryMove classic .caoCao direction = none := by
+    cases direction <;> native_decide
+  change tryMove classic .caoCao direction = some target.1 at step
+  rw [impossible] at step
+  simp at step
+
+theorem classic_initial_coordinateManhattan_is_not_a_legal_distance :
+    coordinateManhattan
+        (caoPosition classicInitial) classicInitialCaoDownPosition = 1 ∧
+      ¬ caoOneStepToPosition
+        classicInitial classicInitialCaoDownPosition :=
+  ⟨classic_initial_coordinateManhattan_adjacent,
+    classic_initial_coordinate_adjacent_not_one_step⟩
 
 end CaoFibers
 
@@ -257,7 +307,7 @@ theorem fibreSize_pos (observe : ι → Ω) (source : ι) :
     0 < fibreSize observe source := by
   exact Finset.card_pos.mpr (fibre_nonempty observe source)
 
-/-- The average of a real-valued function over the observable fibre. -/
+/-- The explicit fibre-average operator on real-valued state functions. -/
 noncomputable def fibreAverage (observe : ι → Ω)
     (f : StateFunctionSpace (ι := ι)) (source : ι) : ℝ :=
   (∑ target ∈ fibre observe source, f target) /
@@ -399,9 +449,11 @@ theorem fibreProjectionLinearMap_idempotent
   intro f
   exact fibreProjectionFn_idempotent observe f
 
-/-- The genuine Mathlib orthogonal projection onto the fibre-constant
-subspace.  The explicit averaging map above is the computable candidate; this
-object supplies the Hilbert-space projection with the Mathlib API. -/
+/-- Mathlib's orthogonal projection onto the fibre-constant subspace.
+
+This is a separate interface from `fibreProjectionFn`, which is defined by
+explicit finite-fibre averaging.  This file proves the algebraic properties
+of both constructions, but does not prove that the two operators are equal. -/
 noncomputable def fibreOrthogonalProjection (observe : ι → Ω) :
     StateFunctionSpace (ι := ι) →L[ℝ] StateFunctionSpace (ι := ι) :=
   (fibreConstantSubmodule observe).starProjection

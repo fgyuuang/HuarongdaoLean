@@ -23,6 +23,21 @@ def metricPositions : Array CaoPosition :=
   ((List.finRange 4).flatMap (fun y =>
     (List.finRange 3).map (fun x => (x, y)))).toArray
 
+/-!
+The report is computed from the finite executable presentation
+`allShapeStates`.  Its vertices are array entries, and its edges are rebuilt
+by `locallyLegalMove` plus `placementIndex`.  The component selected below is
+the component found by that executable traversal.  No theorem in this file
+identifies this array graph with `concreteStateGraph` or with the semantic
+Hausdorff distance in `Huarongdao.CaoFiberMetrics`.
+-/
+
+def finiteComponentStateModel : String :=
+  "finite enumeration allShapeStates; classic component from componentSummariesOf"
+
+def finiteComponentDistanceModel : String :=
+  "array BFS distance on stateAdjacency; finite-fibre minimum and Hausdorff matrices"
+
 def componentRun := componentSummariesOf allShapeStates
 
 def classicComponentId : Nat :=
@@ -44,6 +59,10 @@ def fiberIds (position : CaoPosition) : Array Nat := Id.run do
         (rawStateAt stateId).pos .caoCao = position.toPos then
       result := result.push stateId
   return result
+
+/-- Array indices of the finite enumerated fibre used by the report. -/
+def finiteClassicComponentFiberIds (position : CaoPosition) : Array Nat :=
+  fiberIds position
 
 def stateNeighbors
     (states : Array State) (index : Std.HashMap Nat Nat)
@@ -203,7 +222,8 @@ def jsonPositions : String :=
   "[" ++ String.intercalate "," (metricPositions.toList.map jsonPosition) ++ "]"
 
 def reportJson (report : FiberMetricReport) : String :=
-  "{\"stateModel\":\"allShapeStates/classic-component\"," ++
+  "{\"stateModel\":\"" ++ finiteComponentStateModel ++ "\"," ++
+    "\"distanceModel\":\"" ++ finiteComponentDistanceModel ++ "\"," ++
     "\"stateCount\":" ++ toString report.stateCount ++
     ",\"componentStateCount\":" ++ toString report.componentStateCount ++
     ",\"componentCount\":" ++ toString report.componentCount ++

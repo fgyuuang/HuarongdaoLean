@@ -22,12 +22,24 @@
 
 Manifest 包含：
 
-- `schemaVersion`：缓存格式版本；
+- `schemaVersion`：缓存格式版本；当前版本为 `2`；
 - `gitRevision`、`toolchain`：生成环境；
-- `source`：状态生成器和证书源码的 SHA-256；
+- `source`：所有空间声明的源码记录的并集；
 - `artifacts`：每个 JSON 文件的 SHA-256、字节数和修改时间；
-- `spaces`：空间到产物、生成器依赖、证书模块和结构摘要的映射；
+- `spaces`：空间到产物、源码记录、上游 artifact 依赖、证书模块和结构摘要的映射；
 - `policy`：证书权威性、失效规则和坐标绑定规则。
+
+每个 `spaces.<name>` 条目同时包含：
+
+- `sourceFiles`：该空间的完整生成链源码路径；
+- `sources`：按路径保存的源码文件记录，所有记录都会参与 stale 比较；
+- `dependencies`：该空间读取的上游 JSON artifact 记录；
+- `artifacts`：该空间自己生成的 JSON artifact 记录。
+
+例如，镜像商显式依赖 `frontend/graph.json` 和
+`frontend/layout.json`；corridor 层显式依赖
+`frontend/graph.mirror.json` 和 `frontend/layout.mirror.json`。因此上游图或布局
+改变时，下游空间也会标记为 `stale`。
 
 `full-shape-components.json` 的摘要会记录 65,880 个布局、898 个连续分量、
 206,780 条有向动作边、经典分量大小 25,955，以及 `allValid`、`keysUnique`、
@@ -41,8 +53,13 @@ npm run cache:status
 
 该命令只读取文件并按空间比较 SHA-256：
 
-- `ready`：该空间的生成器依赖和产物均未变化，可以直接复用；
-- `stale`：列出该空间具体变化的源或产物，只安排受影响层的生成/证明任务。
+- `ready`：该空间的源码、上游 artifact 和自身产物均未变化，可以直接复用；
+- `stale`：列出该空间具体变化的源码、上游 artifact 或自身产物，只安排受影响层的生成/证明任务。
+
+源码记录按空间独立比较，而不是只依赖全局源码表。这样修改
+`FullSpaceMain.lean`、`ExportMain.lean`、`MirrorQuotient.lean`、
+`CorridorCompression.lean`、`CorridorExport.lean`、布局导入脚本或任一
+Python 派生脚本时，相关空间会立即失效；传递依赖这些生成链的下游空间也会一并失效。
 
 它不会调用 `lake`、BFS、DFS 或 `native_decide`。写入 manifest：
 
@@ -71,4 +88,6 @@ npm run cache:write
 5. 只改变布局或 UI 时，不重跑状态生成和 Lean 证书；manifest 会仅显示布局文件变化。
 
 任意新任务可沿用同一格式：新增一个 `spaces.<name>` 条目，列出状态图、布局、
-摘要和证书模块，并将其生成器源码加入 `source` 列表。
+摘要和证书模块，将完整生成链加入 `sourceFiles`，并将读取的上游 JSON 加入
+`dependencies`。不要只把路径加入列表而省略对应的记录；`cache:write` 会自动为
+这些路径记录 SHA-256。

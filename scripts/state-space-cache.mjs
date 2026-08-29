@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const frontend = path.join(root, 'frontend');
 const manifestPath = path.join(frontend, 'state-space-manifest.json');
-const schemaVersion = 1;
+const schemaVersion = 2;
 
-const sourceFiles = [
+const commonSourceFiles = [
   'lean-toolchain',
   'lakefile.toml',
   'Huarongdao/Model.lean',
@@ -39,8 +39,17 @@ const spaces = {
       'Huarongdao/Model.lean',
       'Huarongdao/Transition.lean',
       'Huarongdao/Enumeration.lean',
-      'Huarongdao/ClassicFullSpace.lean'
-    ]
+      'Huarongdao/ClassicFullSpace.lean',
+      'Huarongdao/ClassicFullSpaceCertificate.lean',
+      'Huarongdao/ClassicFullSpaceSoundness.lean',
+      'Huarongdao/ClassicFullSpaceCompleteness.lean',
+      'Huarongdao/ClassicComponentSymmetry.lean',
+      'Huarongdao/ClassicComponentSymmetryCertificate.lean',
+      'FullSpaceMain.lean',
+      'scripts/state-space-cache.mjs',
+      'package.json'
+    ],
+    dependencies: []
   },
   'classic-shape-quotient': {
     description: 'Label quotient graph and deterministic coordinates for the classical component.',
@@ -53,8 +62,12 @@ const spaces = {
       'Huarongdao/Transition.lean',
       'Huarongdao/Enumeration.lean',
       'Huarongdao/Quotient.lean',
-      'ExportMain.lean'
-    ]
+      'ExportMain.lean',
+      'scripts/import-reference-layout.mjs',
+      'scripts/state-space-cache.mjs',
+      'package.json'
+    ],
+    dependencies: []
   },
   'mirror-quotient': {
     description: 'Horizontal-mirror quotient graph, layout, and summary.',
@@ -70,8 +83,18 @@ const spaces = {
       'Huarongdao/Model.lean',
       'Huarongdao/Transition.lean',
       'Huarongdao/Enumeration.lean',
+      'Huarongdao/Quotient.lean',
       'Huarongdao/MirrorQuotient.lean',
-      'scripts/build_mirror_quotient.py'
+      'Huarongdao/MirrorSearch.lean',
+      'ExportMain.lean',
+      'scripts/import-reference-layout.mjs',
+      'scripts/build_mirror_quotient.py',
+      'scripts/state-space-cache.mjs',
+      'package.json'
+    ],
+    dependencies: [
+      'frontend/graph.json',
+      'frontend/layout.json'
     ]
   },
   corridor: {
@@ -85,11 +108,34 @@ const spaces = {
     sourceFiles: [
       'lean-toolchain',
       'lakefile.toml',
+      'Huarongdao/Model.lean',
+      'Huarongdao/Transition.lean',
+      'Huarongdao/Enumeration.lean',
+      'Huarongdao/Quotient.lean',
+      'Huarongdao/MirrorQuotient.lean',
+      'Huarongdao/MirrorSearch.lean',
+      'Huarongdao/CorridorCompression.lean',
       'Huarongdao/CorridorExport.lean',
-      'scripts/build_corridor_compression.py'
+      'ExportMain.lean',
+      'scripts/import-reference-layout.mjs',
+      'scripts/build_mirror_quotient.py',
+      'scripts/build_corridor_compression.py',
+      'scripts/state-space-cache.mjs',
+      'package.json'
+    ],
+    dependencies: [
+      'frontend/graph.mirror.json',
+      'frontend/layout.mirror.json'
     ]
   }
 };
+
+const sourceFiles = [
+  ...new Set([
+    ...commonSourceFiles,
+    ...Object.values(spaces).flatMap(space => space.sourceFiles)
+  ])
+];
 
 async function exists(file) {
   try {
@@ -202,6 +248,9 @@ async function buildManifest() {
   const artifactRecords = {};
   const spaceRecords = {};
   for (const [name, space] of Object.entries(spaces)) {
+    const spaceSourceFiles = [
+      ...new Set([...commonSourceFiles, ...space.sourceFiles])
+    ];
     const artifacts = [];
     for (const relativePath of space.artifacts) {
       const record = await fileRecord(relativePath);
@@ -210,10 +259,25 @@ async function buildManifest() {
       artifacts.push(record);
       artifactRecords[relativePath] = record;
     }
+    const dependencies = [];
+    for (const relativePath of space.dependencies ?? []) {
+      const record = await fileRecord(relativePath);
+      const summary = await jsonSummary(relativePath);
+      if (summary) record.summary = summary;
+      dependencies.push(record);
+      artifactRecords[relativePath] ??= record;
+    }
     spaceRecords[name] = {
       description: space.description,
       certificate: space.certificate,
-      sourceFiles: space.sourceFiles,
+      sourceFiles: spaceSourceFiles,
+      sources: Object.fromEntries(
+        spaceSourceFiles.map(relativePath => [
+          relativePath,
+          source[relativePath]
+        ])
+      ),
+      dependencies,
       artifacts
     };
   }
@@ -251,17 +315,34 @@ function spaceStaleReasons(previous, current, name) {
   const newSpace = current.spaces[name];
   if (!oldSpace) return ['space entry missing'];
   const reasons = [];
-  for (const source of newSpace.sourceFiles ?? []) {
-    if ((previous.source?.[source]?.sha256 ?? null) !==
-        (current.source?.[source]?.sha256 ?? null)) {
-      reasons.push(`generator source changed: ${source}`);
+  for (const sourcePath of newSpace.sourceFiles ?? []) {
+    const oldSource = oldSpace.sources?.[sourcePath] ?? previous.source?.[sourcePath];
+    const newSource = newSpace.sources?.[sourcePath] ?? current.source?.[sourcePath];
+    if (!newSource?.present) {
+      reasons.push(`generator source missing: ${sourcePath}`);
+    } else if (oldSource?.sha256 !== newSource.sha256 ||
+        oldSource?.present !== newSource.present) {
+      reasons.push(`generator source changed: ${sourcePath}`);
+    }
+  }
+  const oldDependencies = Object.fromEntries(
+    (oldSpace.dependencies ?? []).map(dependency => [dependency.path, dependency])
+  );
+  for (const dependency of newSpace.dependencies ?? []) {
+    const oldDependency = oldDependencies[dependency.path];
+    if (!dependency.present) {
+      reasons.push(`upstream artifact missing: ${dependency.path}`);
+    } else if (oldDependency?.sha256 !== dependency.sha256 ||
+        oldDependency?.present !== dependency.present) {
+      reasons.push(`upstream artifact changed: ${dependency.path}`);
     }
   }
   const oldArtifacts = Object.fromEntries(
     (oldSpace.artifacts ?? []).map(artifact => [artifact.path, artifact])
   );
   for (const artifact of newSpace.artifacts) {
-    if ((oldArtifacts[artifact.path]?.sha256 ?? null) !== (artifact.sha256 ?? null)) {
+    if (oldArtifacts[artifact.path]?.sha256 !== artifact.sha256 ||
+        oldArtifacts[artifact.path]?.present !== artifact.present) {
       reasons.push(`artifact changed: ${artifact.path}`);
     }
     if (!artifact.present) reasons.push(`artifact missing: ${artifact.path}`);

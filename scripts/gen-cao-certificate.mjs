@@ -68,18 +68,27 @@ import Std.Tactic
 namespace Huarongdao
 namespace ClassicStateSpaceKernel
 
-/- Concrete legal representatives for the 17 geometric neighbor pairs of the
-   twelve Cao Cao position classes. State ids refer to frontend/graph.json. -/
+/- Concrete legal representatives for 17 observed neighbor pairs of the
+   twelve Cao Cao position classes. State ids refer to frontend/graph.json.
+
+   This file certifies one concrete one-step witness for each listed pair.
+   It does not, by itself, prove that these are all edges of the quotient
+   relation CaoClassAdjacent. -/
 ${witnessDefs}
 
 ${pairTheorems}
 
-/-- One concrete one-step witness for each of the 17 geometric neighbor pairs. -/
-structure CaoClassDistanceCertificate where
+/-- One concrete one-step witness for each of the 17 listed Cao Cao class pairs.
+
+This is an existence certificate for the listed pairs, not an edge-completeness
+certificate for CaoClassAdjacent. In particular, no field states that every
+adjacent pair of quotient nodes occurs among these 17 fields. -/
+structure CaoClassWitnessCertificate where
 ${structureFields}
 
-/-- The bundled 17-witness certificate for the twelve-point projection. -/
-theorem allCaoClassDistanceCertificates : CaoClassDistanceCertificate :=
+/-- The bundled witnesses for the 17 listed pairs in the twelve-point
+projection. -/
+theorem classicCaoClassWitnesses : CaoClassWitnessCertificate :=
   {
 ${aggregateFields}
   }

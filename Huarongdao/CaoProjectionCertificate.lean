@@ -4,8 +4,12 @@ import Std.Tactic
 namespace Huarongdao
 namespace ClassicStateSpaceKernel
 
-/- Concrete legal representatives for the 17 geometric neighbor pairs of the
-   twelve Cao Cao position classes. State ids refer to frontend/graph.json. -/
+/- Concrete legal representatives for 17 observed neighbor pairs of the
+   twelve Cao Cao position classes. State ids refer to frontend/graph.json.
+
+   This file certifies one concrete one-step witness for each listed pair.
+   It does not, by itself, prove that these are all edges of the quotient
+   relation CaoClassAdjacent. -/
 def classicCaoWitnessState16 : ValidClassicState :=
   ⟨{ positions := #[⟨1,0⟩, ⟨1,3⟩, ⟨0,0⟩, ⟨3,0⟩, ⟨0,2⟩, ⟨3,2⟩, ⟨1,4⟩, ⟨2,4⟩, ⟨0,4⟩, ⟨3,4⟩] }, by
     unfold ValidState
@@ -397,8 +401,12 @@ theorem classicCaoClassDistance_22_23 :
         native_decide)
       (by native_decide))
 
-/-- One concrete one-step witness for each of the 17 geometric neighbor pairs. -/
-structure CaoClassDistanceCertificate where
+/-- One concrete one-step witness for each of the 17 listed Cao Cao class pairs.
+
+This is an existence certificate for the listed pairs, not an edge-completeness
+certificate for CaoClassAdjacent. In particular, no field states that every
+adjacent pair of quotient nodes occurs among these 17 fields. -/
+structure CaoClassWitnessCertificate where
   pair_00_01 : CaoClassConcreteDistanceOne
     (caoPositionObservation.classOf classicCaoWitnessState940)
     (caoPositionObservation.classOf classicCaoWitnessState1004)
@@ -451,8 +459,9 @@ structure CaoClassDistanceCertificate where
     (caoPositionObservation.classOf classicCaoWitnessState17790)
     (caoPositionObservation.classOf classicCaoWitnessState17894)
 
-/-- The bundled 17-witness certificate for the twelve-point projection. -/
-theorem allCaoClassDistanceCertificates : CaoClassDistanceCertificate :=
+/-- The bundled witnesses for the 17 listed pairs in the twelve-point
+projection. -/
+theorem classicCaoClassWitnesses : CaoClassWitnessCertificate :=
   {
   pair_00_01 := classicCaoClassDistance_00_01
   pair_00_10 := classicCaoClassDistance_00_10

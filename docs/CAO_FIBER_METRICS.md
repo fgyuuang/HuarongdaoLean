@@ -11,7 +11,8 @@
 (0,3) (1,3) (2,3)
 ```
 
-排列。有限数值报告使用 `allShapeStates` 中曹操初态所在的等形连通分支：
+排列。有限数值报告使用 `allShapeStates` 中曹操初态所在的等形连通分支，
+并在这个有限枚举上重新构造数组邻接和 BFS 距离：
 
 ```text
 全几何状态数：65880
@@ -19,7 +20,18 @@
 经典初态所在分支：25955
 ```
 
-因此，下面的矩阵不是把 898 个分支混合后的全语义 Hausdorff 距离，而是经典分支内的纤维距离。
+因此，下面的矩阵不是把 898 个分支混合后的全语义 Hausdorff 距离，而是
+有限枚举数组图模型中的经典分支纤维距离。报告 JSON 中的模型标识为：
+
+```text
+stateModel = finite-enumeration/allShapeStates/classic-component/array-graph
+distanceModel = finite-array-BFS-and-Hausdorff
+```
+
+这里的“经典分支”是 `componentSummariesOf allShapeStates` 对数组索引执行的
+可执行分量划分；“数组图”是由 `locallyLegalMove`、`placementIndex` 和对称化
+邻接表生成的图。当前没有在 Lean 中证明该数组图与所有合法带标签状态上的
+`concreteStateGraph` 同构，也没有证明数组代表的纤维集合与语义纤维逐点对应。
 
 ## 纤维规模
 
@@ -40,7 +52,8 @@
 d_min(F_p,F_q) = min { d(s,t) | s in F_p, t in F_q }
 ```
 
-其中 `d` 是经典等形分支的状态图最短距离。
+其中 `d` 是有限数组图经典分支的最短路距离，而不是已经证明等于
+`concreteStateGraph.edist` 的语义距离。
 
 ```text
  0  1 10  1  7 14 14 14 20 27 47 29
@@ -85,7 +98,7 @@ d_H(F_p,F_q) = max(
 110 106 110 104 91 99  76  75  78  52  63   0
 ```
 
-该矩阵在经典分支内全为有限值，且程序核验得到：
+该矩阵在有限数组图的经典分支内全为有限值，且程序核验得到：
 
 ```text
 finite=true
@@ -93,7 +106,35 @@ Hausdorff-symmetric=true
 Hausdorff-triangle=true
 ```
 
-理论上，`Huarongdao.CaoFiberMetrics` 中的 `caoPositionHausdorffEDist` 使用扩展值 `ℝ≥0∞`，所以不连通时保留 `∞`；`caoPositionHausdorffEDist_comm` 和 `caoPositionHausdorffEDist_triangle` 直接由图诱导的扩展拟度量和 Mathlib Hausdorff 定理得到。有限矩阵是把这些扩展距离限制到一个已知连通的有限分支后得到的数值实例。
+## 与 Lean 语义定义的关系
+
+`Huarongdao.CaoFiberMetrics` 中的 `caoPositionHausdorffEDist` 是具体带标签
+状态图上的语义定义：
+
+```text
+graphHausdorffEDist concreteStateGraph
+  (caoFiber left) (caoFiber right)
+```
+
+它的值域是 `ℝ≥0∞`，因此不连通时保留 `∞`；其对称性和三角不等式由图诱导的
+扩展度量与 Mathlib 的 Hausdorff 定理证明。
+
+同一 Lean 文件还定义了
+`concreteClassicComponentCaoPositionHausdorffEDist`。它把语义纤维限制到
+`concreteStateGraph.Reachable classicValid` 所定义的**语义具体图连通分支**，
+因此是一个严格的语义 restriction：
+
+```text
+graphHausdorffEDist concreteStateGraph
+  (caoFiber left ∩ concreteClassicComponent)
+  (caoFiber right ∩ concreteClassicComponent)
+```
+
+但是，目前没有证明 `allShapeStates` 的可执行经典分支等于这个语义具体图分支，
+也没有证明有限数组邻接与 `concreteStateGraph` 的边集完全一致。因此，下面的
+12×12 数值矩阵不能写成 `caoPositionHausdorffEDist` 或
+`concreteClassicComponentCaoPositionHausdorffEDist` 的已经验证的 restriction；
+它应当被称为有限枚举数组图上的独立计算结果。
 
 ## 关羽让路强命题
 
