@@ -1,4 +1,5 @@
 import Huarongdao.Generic
+import Huarongdao.Generic.Certificates
 
 open SlidingPuzzle Huarongdao
 
@@ -92,6 +93,9 @@ private def graphEdgeJson (edge : GraphEdge) : String :=
 private def resultJson (spec : PuzzleSpec) (result : SearchResult) : String :=
   let graph := result.graph
   let verified := result.verified spec
+  let closedVerified := result.closedVerified spec
+  let noGoalVerified := result.noGoalVerified spec
+  let unreachableVerified := result.unreachableVerified spec
   let actionData := result.actions.mapIdx fun index action => actionJson (index + 1) action
   let stateData := (trace spec spec.initial result.actions).getD [] |>.map stateJson
   let nodeData := graph.states.toList.mapIdx fun index state => graphNodeJson spec graph index state
@@ -125,6 +129,13 @@ private def resultJson (spec : PuzzleSpec) (result : SearchResult) : String :=
       field "claim" (quote "Nonempty (Solution spec)") ++ "," ++
       field "shortest" ("{" ++ field "computedBySearch" "true" ++ "," ++
         field "algorithm" (quote (strategyName result.strategy)) ++ "," ++ field "kernelProved" "false" ++ "}") ++ "}"
+    else if result.status == .unreachable then
+      "{" ++ field "kind" (quote "unreachable-certificate") ++ "," ++
+        field "closedVerified" (toString closedVerified) ++ "," ++
+        field "noGoalVerified" (toString noGoalVerified) ++ "," ++
+        field "verified" (toString unreachableVerified) ++ "," ++
+        field "verifier" (quote "Lean checkClosedGraph + checkNoGoal") ++ "," ++
+        field "claim" (quote "No reachable goal state") ++ "}"
     else "null"
   "{" ++ field "schemaVersion" (quote "2") ++ "," ++
     field "status" (quote (statusName result.status)) ++ "," ++

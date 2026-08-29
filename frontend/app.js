@@ -27,7 +27,7 @@ const dataFiles = {
   mirror: { graph: 'graph.mirror.json', layout: 'layout.mirror.json' },
   corridor: { graph: 'graph.corridor.json', layout: 'layout.corridor.json' }
 }[stateSpaceLayer];
-const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle cao-merge-label goal-sink-toggle cao-position-filter cao-trace-detail'.split(' ');
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle cao-merge-label goal-sink-toggle cao-position-filter cao-trace-detail cao-transition-panel cao-transition-title cao-transition-close cao-transition-drag cao-transition-minimize cao-transition-source-meta cao-transition-target-meta cao-transition-source-board cao-transition-target-board cao-transition-detail cao-transition-distance cao-transition-status cao-transition-play'.split(' ');
 const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
 let graphData, layoutData, parentGraphData = null, outgoing, shortestGoalDistance = 0, shortestOperationDistance = 0;
@@ -72,6 +72,7 @@ let graphPositions = null, graphCenter = new THREE.Vector3(), graphSize = 100, e
 let overviewVisualPositions = null, contractionPairs = [], contractionProgress = 1, contractionAnimationToken = 0;
 let pointerDown = null, hoverPosition = null, hoverFrame = null, lastHoverPick = 0;
 let caoViewEnabled = false, caoMergeEnabled = false, goalSinkEnabled = false, caoFilterKey = 'current', lastCaoStyledKey = null;
+let caoTransitionWitnesses = new Map(), caoSelectedStart = null, caoSelectedEnd = null, caoSelectedWitness = null, caoPanelCollapsed = false;
 let keyboardFocus = 'board';
 let graphKeyboardIndex = 0;
 let randomWalkTimer = null;
@@ -435,6 +436,159 @@ function caoPositionColor(y) {
     : [0xa86d14, 0x28745a, 0xb44937, 0x187078];
   return new THREE.Color(palettes[Math.max(0, Math.min(palettes.length - 1, y))]);
 }
+function caoDirectedPairKey(sourceGroup, targetGroup) {
+  return sourceGroup + ':' + targetGroup;
+}
+function caoWitnessPairCount() {
+  return new Set([...caoTransitionWitnesses.keys()].map(key => {
+    const [source, target] = key.split(':').map(Number);
+    return edgeKey(source, target);
+  })).size;
+}
+function concreteCaoStep(edge) {
+  const steps = edge.steps?.length ? edge.steps : [edge];
+  if (steps.length !== 1 || steps[0].piece !== 0) return null;
+  return steps[0];
+}
+function renderCaoMiniBoard(container, state, label) {
+  if (!container || !state) return;
+  container.replaceChildren();
+  state.positions.forEach(([x, y], index) => {
+    const spec = pieces[index];
+    const wrap = document.createElement('div');
+    wrap.className = 'piece ' + spec.cls + (index === 0 ? ' selected' : '');
+    Object.assign(wrap.style, {
+      left: x * 25 + '%', top: y * 20 + '%', width: spec.w * 25 + '%', height: spec.h * 20 + '%'
+    });
+    const button = document.createElement('button');
+    button.type = 'button'; button.disabled = true; button.textContent = spec.label;
+    wrap.append(button); container.append(wrap);
+  });
+  container.title = label || ('代表元 #' + state.id);
+  container.onclick = () => animateToCaoState(state.id, label || ('代表元 #' + state.id));
+}
+function setCaoPanelCollapsed(collapsed) {
+  caoPanelCollapsed = Boolean(collapsed);
+  ui['cao-transition-panel']?.classList.toggle('collapsed', caoPanelCollapsed);
+  if (ui['cao-transition-minimize']) {
+    ui['cao-transition-minimize'].textContent = caoPanelCollapsed ? '＋' : '−';
+  }
+}
+function startCaoPanelDrag(event) {
+  const panel = ui['cao-transition-panel'], host = ui['graph-wrap'];
+  if (!panel || panel.hidden || !host || event.button !== 0) return;
+  event.preventDefault();
+  const panelRect = panel.getBoundingClientRect(), hostRect = host.getBoundingClientRect();
+  const startX = event.clientX, startY = event.clientY;
+  const originLeft = panelRect.left - hostRect.left, originTop = panelRect.top - hostRect.top;
+  const maxLeft = Math.max(0, hostRect.width - panelRect.width - 4);
+  const maxTop = Math.max(0, hostRect.height - 40);
+  const onMove = moveEvent => {
+    const left = Math.max(4, Math.min(maxLeft, originLeft + moveEvent.clientX - startX));
+    const top = Math.max(4, Math.min(maxTop, originTop + moveEvent.clientY - startY));
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+  };
+  const finish = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', finish);
+    window.removeEventListener('pointercancel', finish);
+    document.body.classList.remove('cao-dragging-panel');
+  };
+  document.body.classList.add('cao-dragging-panel');
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', finish);
+  window.addEventListener('pointercancel', finish);
+}
+function resetCaoTransitionSelection() {
+  caoSelectedStart = null; caoSelectedEnd = null; caoSelectedWitness = null;
+  ui['cao-transition-panel']?.toggleAttribute('hidden', true);
+  setCaoPanelCollapsed(false);
+  if (ui['cao-transition-status']) ui['cao-transition-status'].textContent = '第一次点击选择起点类';
+  if (caoProjectionPoints) updateCaoViewStyles(false);
+}
+function showCaoTransitionPanel(witness) {
+  const sourceGroup = caoGroups[witness.sourceGroup], targetGroup = caoGroups[witness.targetGroup];
+  const source = graphData.states[witness.sourceState], target = graphData.states[witness.targetState];
+  const step = concreteCaoStep(witness.edge) || witness.edge;
+  renderCaoMiniBoard(ui['cao-transition-source-board'], source, '起点代表元 #' + witness.sourceState);
+  renderCaoMiniBoard(ui['cao-transition-target-board'], target, '终点代表元 #' + witness.targetState);
+  ui['cao-transition-title'].textContent = caoPositionLabel(sourceGroup.key) + ' → ' + caoPositionLabel(targetGroup.key);
+  ui['cao-transition-source-meta'].textContent = '#' + witness.sourceState + ' · ' + caoPositionLabel(sourceGroup.key);
+  ui['cao-transition-target-meta'].textContent = '#' + witness.targetState + ' · ' + caoPositionLabel(targetGroup.key);
+  ui['cao-transition-detail'].textContent = pieces[step.piece].label + '向' + step.direction + ' · #'
+    + witness.sourceState + ' → #' + witness.targetState;
+  ui['cao-transition-distance'].textContent = '具体距离 = 1';
+  ui['cao-transition-status'].textContent = '已找到真实一步曹操边；两类不同所以距离不能是 0';
+  ui['cao-transition-play'].disabled = false;
+  ui['cao-transition-panel'].toggleAttribute('hidden', false);
+  setCaoPanelCollapsed(false);
+}
+function selectCaoGroup(groupId) {
+  if (!caoMergeEnabled || !caoGroups[groupId]) return;
+  if (caoSelectedStart === null || caoSelectedEnd !== null) {
+    caoSelectedStart = groupId; caoSelectedEnd = null; caoSelectedWitness = null;
+    ui['cao-transition-panel']?.toggleAttribute('hidden', false);
+    setCaoPanelCollapsed(true);
+    ui['cao-transition-title'].textContent = '已选择起点类 ' + caoPositionLabel(caoGroups[groupId].key) + ' · 再点击终点类';
+    ui['cao-transition-source-meta'].textContent = '等待终点类';
+    ui['cao-transition-target-meta'].textContent = '--';
+    ui['cao-transition-source-board'].replaceChildren(); ui['cao-transition-target-board'].replaceChildren();
+    ui['cao-transition-detail'].textContent = '请再点击一个相邻曹操位置类';
+    ui['cao-transition-distance'].textContent = '距离待验证';
+    ui['cao-transition-status'].textContent = '第二次点击选择终点类';
+    ui['cao-transition-play'].disabled = true;
+    updateCaoViewStyles(false);
+    return;
+  }
+  if (caoSelectedStart === groupId) {
+    ui['cao-transition-status'].textContent = '起点和终点类不能相同，请选择相邻的另一个类';
+    return;
+  }
+  const witness = caoTransitionWitnesses.get(caoDirectedPairKey(caoSelectedStart, groupId));
+  if (!witness) {
+    caoSelectedEnd = groupId; caoSelectedWitness = null;
+    ui['cao-transition-title'].textContent = caoPositionLabel(caoGroups[caoSelectedStart].key) + ' → ' + caoPositionLabel(caoGroups[groupId].key);
+    ui['cao-transition-detail'].textContent = '这两个类没有一条真实一步曹操边';
+    ui['cao-transition-distance'].textContent = '距离 > 1 或不可达';
+    ui['cao-transition-status'].textContent = '请关闭面板后重新选择一对几何相邻类';
+    ui['cao-transition-play'].disabled = true;
+    setCaoPanelCollapsed(false);
+    updateCaoViewStyles(false);
+    return;
+  }
+  caoSelectedEnd = groupId; caoSelectedWitness = witness; showCaoTransitionPanel(witness); updateCaoViewStyles(false);
+}
+function loadSelectedCaoWitness() {
+  const witness = caoSelectedWitness;
+  if (!witness) return;
+  cancelAnimation();
+  routeStart = witness.sourceState; routeEnd = witness.targetState;
+  routePath = shortestPath(routeStart, routeEnd);
+  routeStartPinned = true; selectionMode = 'end';
+  syncRouteControls();
+  renderState(routeStart, false, '已加载曹操一步见证起点 #' + routeStart + '；点击路径播放按钮查看移动');
+  updateGraphState();
+}
+function animateToCaoState(id, label) {
+  if (!graphData?.states[id]) return;
+  cancelAnimation();
+  if (id === 0) {
+    renderState(0, false, '已回到横刀立马初始位置');
+    return;
+  }
+  renderState(0, false, '正在从初始位置前往 ' + (label || ('代表元 #' + id)));
+  routeStart = 0;
+  routeEnd = id;
+  routePath = shortestPath(routeStart, routeEnd);
+  routeStartPinned = false;
+  selectionMode = 'end';
+  syncRouteControls();
+  updateGraphState();
+  ui['last-move'].textContent = '正在前往 ' + (label || ('代表元 #' + id)) + ' · ' +
+    Math.max(0, routePath.length - 1) + (isCorridorSpace ? ' 次归并操作' : ' 条合法边');
+  animateSelectedRoute();
+}
 function buildCaoProjection() {
   const groupsByKey = new Map();
   for (const state of graphData.states) {
@@ -465,13 +619,18 @@ function buildCaoProjection() {
   caoProjectionGroup.add(caoProjectionPoints);
 
   const seen = new Set(), projected = [];
+  caoTransitionWitnesses = new Map();
   for (const edge of graphData.edges) {
     const source = caoGroupByState[edge.source], target = caoGroupByState[edge.target];
     if (source === target) continue;
     if (!edgeMovesCao(edge)) continue;
     const key = Math.min(source, target) + ':' + Math.max(source, target);
-    if (seen.has(key)) continue;
-    seen.add(key); projected.push([source, target]);
+    if (!seen.has(key)) { seen.add(key); projected.push([source, target]); }
+    if (concreteCaoStep(edge) && !caoTransitionWitnesses.has(caoDirectedPairKey(source, target))) {
+      caoTransitionWitnesses.set(caoDirectedPairKey(source, target), {
+        sourceGroup: source, targetGroup: target, sourceState: edge.source, targetState: edge.target, edge
+      });
+    }
   }
   const edgePositions = new Float32Array(projected.length * 6);
   projected.forEach(([source, target], index) => {
@@ -507,7 +666,12 @@ function applyCaoPointColors(points, nodeIds) {
   for (let index = 0; index < nodeIds.length; index += 1) {
     const key = caoPositionKey(graphData.states[nodeIds[index]]);
     const matched = selectedKey === 'all' || key === selectedKey;
-    (matched ? caoPositionColor(Number(key.split(',')[1])) : muted).toArray(colors, index * 3);
+    const groupId = points.userData.caoGroupIds?.[index];
+    const selected = points === caoProjectionPoints && groupId === caoSelectedStart;
+    const target = points === caoProjectionPoints && groupId === caoSelectedEnd;
+    (selected ? new THREE.Color(isDarkTheme() ? 0xf0c36a : 0xc47a1c)
+      : target ? new THREE.Color(isDarkTheme() ? 0xdf8b70 : 0x9f2d2d)
+      : matched ? caoPositionColor(Number(key.split(',')[1])) : muted).toArray(colors, index * 3);
   }
   points.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   points.material.color.set(0xffffff); points.material.vertexColors = true; points.material.needsUpdate = true;
@@ -529,6 +693,7 @@ function updateCaoViewStyles(rebuildExplore = true) {
 }
 function setCaoMerge(enabled, refit = true) {
   caoMergeEnabled = Boolean(enabled);
+  if (!caoMergeEnabled) resetCaoTransitionSelection();
   if (caoMergeEnabled && goalSinkEnabled) {
     goalSinkEnabled = false;
     ui['goal-sink-toggle'].checked = false;
@@ -554,6 +719,7 @@ function setGoalSink(enabled, refit = true) {
   if (goalSinkEnabled && caoMergeEnabled) {
     caoMergeEnabled = false;
     ui['cao-merge-toggle'].checked = false;
+    resetCaoTransitionSelection();
   }
   syncOverviewProjection();
   ui['cao-controls'].classList.toggle('active', caoViewEnabled || caoMergeEnabled || goalSinkEnabled);
@@ -577,7 +743,8 @@ function updateCaoTraceDetail() {
   if (!graphData || !caoGroups.length) return;
   const key = caoPositionKey(graphData.states[current]);
   const group = caoGroups[caoGroupByState[current]], trace = caoTraceStats();
-  ui['cao-trace-detail'].textContent = `曹操${caoGroupingName()} ${caoPositionLabel(key)} · 同组 ${group.members.length.toLocaleString()} · 轨迹移动 ${trace.moves} 次 · 向下 ${trace.downMoves} 次${trace.firstDown === null ? '' : ` · 首次第 ${trace.firstDown} 步`}`;
+  const witnessText = caoMergeEnabled ? ` · 一步见证 ${caoWitnessPairCount()} 对` : '';
+  ui['cao-trace-detail'].textContent = `曹操${caoGroupingName()} ${caoPositionLabel(key)} · 同组 ${group.members.length.toLocaleString()} · 轨迹移动 ${trace.moves} 次 · 向下 ${trace.downMoves} 次${trace.firstDown === null ? '' : ` · 首次第 ${trace.firstDown} 步`}${witnessText}`;
 }
 
 function goalSinkEdgeGeometry(pairs) {
@@ -1676,6 +1843,10 @@ renderer.domElement.addEventListener('pointerup', event => {
   if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
   const hit = pickNode(event.clientX, event.clientY);
   if (hit) {
+    if (caoMergeEnabled && hit.object === caoProjectionPoints) {
+      selectCaoGroup(hit.object.userData.caoGroupIds?.[hit.index]);
+      return;
+    }
     const isGoalSink = goalSinkEnabled && hit.object === goalSinkPoints && hit.index === goalSinkIndex;
     const id = isGoalSink
       ? nearestGoalNode(routeStartPinned ? routeStart : current)
@@ -1696,7 +1867,7 @@ function updateGraphHover(position) {
       ? '成功逃脱 · ' + goalSinkStateCount.toLocaleString() + ' 个终局 · 点击导航到最近终局'
       : groupId == null
       ? '#' + id + ' · 起点距离 ' + graphData.states[id].distance + ' · 目标距离 ' + layoutData.coordinates[id][3] + cao
-      : '曹操' + caoGroupingName() + ' ' + caoPositionLabel(caoGroups[groupId].key) + ' · ' + caoGroups[groupId].members.length.toLocaleString() + ' 个状态 · 点击选择代表节点 #' + id;
+      : '曹操' + caoGroupingName() + ' ' + caoPositionLabel(caoGroups[groupId].key) + ' · ' + caoGroups[groupId].members.length.toLocaleString() + ' 个状态 · 点击选择类间一步见证';
     const rect = renderer.domElement.getBoundingClientRect();
     ui['node-tooltip'].style.left = clientX - rect.left + 12 + 'px'; ui['node-tooltip'].style.top = clientY - rect.top + 12 + 'px';
   }
@@ -1792,6 +1963,10 @@ ui['force3d-pin'].onclick = pinForceReferenceShape;
 document.getElementById('pick-start').onclick = () => { selectionMode = 'start'; routeStartPinned = true; syncRouteControls(); };
 document.getElementById('pick-end').onclick = () => { selectionMode = 'end'; syncRouteControls(); };
 document.getElementById('route-play').onclick = animateSelectedRoute;
+ui['cao-transition-close']?.addEventListener('click', resetCaoTransitionSelection);
+ui['cao-transition-drag']?.addEventListener('pointerdown', startCaoPanelDrag);
+ui['cao-transition-minimize']?.addEventListener('click', () => setCaoPanelCollapsed(!caoPanelCollapsed));
+ui['cao-transition-play']?.addEventListener('click', loadSelectedCaoWitness);
 document.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => setGraphMode(button.dataset.mode));
 ui['quotient-contract']?.addEventListener('input', event => {
   contractionAnimationToken += 1;
@@ -2026,6 +2201,8 @@ if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
     updateCaoViewStyles(); updateGraphState();
   },
   setCaoMerge: enabled => { ui['cao-merge-toggle'].checked = Boolean(enabled); setCaoMerge(enabled); },
+  selectCaoGroup: groupId => selectCaoGroup(Number(groupId)),
+  caoWitness: (sourceGroup, targetGroup) => caoTransitionWitnesses.get(caoDirectedPairKey(Number(sourceGroup), Number(targetGroup))) || null,
   setGoalSink: enabled => { ui['goal-sink-toggle'].checked = Boolean(enabled); setGoalSink(enabled); },
   selectStart: id => { selectionMode = 'start'; routeStartPinned = true; return selectRouteNode(id); },
   selectEnd: id => { selectionMode = 'end'; return selectRouteNode(id); },
@@ -2051,6 +2228,7 @@ if (new URLSearchParams(location.search).has('test')) window.__HRD_TEST__ = {
   state: () => ({
     current, graphMode, routeStart, routeEnd, routeLength: routePath.length,
     caoViewEnabled, caoMergeEnabled, goalSinkEnabled, caoFilterKey, effectiveCaoFilter: effectiveCaoFilterKey(),
+    caoSelectedStart, caoSelectedEnd, caoWitnessPairCount: caoWitnessPairCount(),
     caoTrace: caoTraceStats(), caoGroups: caoGroups.length,
     goalSinkStateCount, goalSinkEdgeCount, goalSinkVisualCount: graphData.states.length - goalSinkStateCount + 1,
     explored: exploredNodes.size, shown: exploreNodeIds.length, isAnimating,

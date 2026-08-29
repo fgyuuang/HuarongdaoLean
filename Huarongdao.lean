@@ -9,6 +9,7 @@ import Huarongdao.Search
 import Huarongdao.ClassicCertificate
 import Huarongdao.ClassicLocalTopology
 import Huarongdao.CaoProjection
+import Huarongdao.CaoProjectionCertificate
 import Huarongdao.SymmetryShortestPath
 import Huarongdao.StateSpaceAnalysis
 import Huarongdao.StateSpaceBfs
@@ -16,4 +17,7 @@ import Huarongdao.Minimality
 import Huarongdao.ProofGame
 import Huarongdao.Bottleneck
 import Huarongdao.LocalTopology
+import Huarongdao.KeyExact
+import Huarongdao.ClassicFiniteGraph
+import Huarongdao.MultipleShortestPaths
 import Huarongdao.Generic

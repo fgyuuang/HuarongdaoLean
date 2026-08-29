@@ -1,5 +1,6 @@
 import Huarongdao.Relabeling
 import Huarongdao.StateSpace
+import Huarongdao.Reversibility
 
 namespace Huarongdao
 
@@ -106,6 +107,24 @@ theorem sameShapeStepLift : SameShapeStepLift := by
   refine ⟨action', target', ?_, ?_⟩
   · exact relabelledMove
   · exact sameShape_symm (relabel_sameShape relabeling target.1)
+
+/-- Every equal-shape quotient edge between valid states is reversible:
+    the reverse primitive move is transported back through the equal-shape
+    class of the target. -/
+theorem qstep_symm_of_valid {s t : State}
+    (hs : ValidState s) (ht : ValidState t) (h : QStep s t) :
+    QStep t s := by
+  rcases h with ⟨p, d, next, executed, equivalent⟩
+  have nextValid := tryMove_preserves_validity executed
+  have lift := sameShapeStepLift
+    (source := ⟨next, nextValid⟩)
+    (source' := ⟨t, ht⟩)
+    (action := ⟨p, d.reverse⟩)
+    (target := ⟨s, hs⟩)
+    equivalent
+    (tryMove_reverse hs executed)
+  rcases lift with ⟨action', target', step', shape⟩
+  exact ⟨action'.piece, action'.direction, target'.1, step', sameShape_symm shape⟩
 
 /-- The equal-shape observation is an exact bisimulation quotient. -/
 def shapeBisimulation :

@@ -113,6 +113,36 @@
           <div class="local-topology-tooltip"></div>
         </div>
         <div id="node-tooltip" class="node-tooltip"></div>
+        <aside id="cao-transition-panel" class="cao-transition-panel" hidden aria-label="曹操聚类一步见证">
+          <header>
+            <div>
+              <small>CAO CLASS EDGE · VERIFIED</small>
+              <h2 id="cao-transition-title">选择两个曹操位置类</h2>
+            </div>
+            <button id="cao-transition-drag" type="button" title="拖动窗口">≡</button>
+            <button id="cao-transition-minimize" type="button" title="收起窗口">−</button>
+            <button id="cao-transition-close" type="button" title="关闭曹操一步见证">×</button>
+          </header>
+          <div class="cao-transition-boards">
+            <article>
+              <header><div><small>起点代表元</small><strong id="cao-transition-source-meta">--</strong></div></header>
+              <div id="cao-transition-source-board" class="cao-transition-board" aria-label="曹操一步见证起点棋盘"></div>
+            </article>
+            <div class="cao-transition-arrow" aria-hidden="true">→</div>
+            <article>
+              <header><div><small>终点代表元</small><strong id="cao-transition-target-meta">--</strong></div></header>
+              <div id="cao-transition-target-board" class="cao-transition-board" aria-label="曹操一步见证终点棋盘"></div>
+            </article>
+          </div>
+          <div class="cao-transition-proof">
+            <code id="cao-transition-detail">等待两个相邻曹操位置类</code>
+            <strong id="cao-transition-distance">距离 = 1</strong>
+          </div>
+          <footer>
+            <span id="cao-transition-status">第一次点击选择起点类</span>
+            <button id="cao-transition-play" type="button" disabled>在主棋盘中查看</button>
+          </footer>
+        </aside>
         <div id="force3d-actions" class="force3d-actions" hidden>
           <button id="force3d-reheat" type="button" title="释放参考坐标并重新运行 d3-force-3d">释放并重新加热</button>
           <button id="force3d-pin" type="button" title="恢复并固定上游预计算参考坐标">固定参考形状</button>

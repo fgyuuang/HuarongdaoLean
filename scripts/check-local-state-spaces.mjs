@@ -37,6 +37,34 @@ function checkCaoProjection(name, graph, mirrorInvariant, expectedGroupCount) {
   }
 }
 
+function checkExactCaoClassAdjacency(graph) {
+  const keys = graph.states.map(state => caoPositionKey(state, false));
+  const positionKeys = [...new Set(keys)];
+  const neighbors = new Set();
+  for (const left of positionKeys) {
+    const [lx, ly] = left.split(',').map(Number);
+    for (const right of positionKeys) {
+      const [rx, ry] = right.split(',').map(Number);
+      if (Math.abs(lx - rx) + Math.abs(ly - ry) !== 1) continue;
+      neighbors.add([left, right].sort().join('|'));
+    }
+  }
+  const witnesses = new Map();
+  for (const edge of graph.edges) {
+    const sourceGroup = keys[edge.source], targetGroup = keys[edge.target];
+    if (sourceGroup === targetGroup) continue;
+    const steps = edge.steps?.length ? edge.steps : [edge];
+    if (steps.length !== 1 || steps[0].piece !== 0) continue;
+    const pair = [sourceGroup, targetGroup].sort().join('|');
+    if (!witnesses.has(pair)) witnesses.set(pair, { edge, sourceGroup, targetGroup, step: steps[0] });
+  }
+  assert(witnesses.size === neighbors.size,
+    `shape: projected Cao adjacency count ${witnesses.size} != geometric neighbor count ${neighbors.size}`);
+  for (const pair of neighbors) assert(witnesses.has(pair), `shape: missing one-step Cao witness for ${pair}`);
+  for (const pair of witnesses.keys()) assert(neighbors.has(pair), `shape: extra projected Cao pair ${pair}`);
+  return [...neighbors].sort().map(pair => ({ pair, ...witnesses.get(pair) }));
+}
+
 const shape = read('graph.json');
 const shapeLayout = read('layout.json');
 const mirror = read('graph.mirror.json');
@@ -50,6 +78,7 @@ checkGraph('corridor', corridor, corridorLayout);
 checkCaoProjection('shape', shape, false, 12);
 checkCaoProjection('mirror', mirror, true, 8);
 checkCaoProjection('corridor', corridor, true, 8);
+const caoExactWitnesses = checkExactCaoClassAdjacency(shape);
 
 assert(mirror.meta.quotient?.symmetry === 'horizontal_mirror', 'mirror: quotient metadata missing');
 assert(mirror.meta.verified === true, 'mirror: Lean verification metadata missing');
@@ -107,4 +136,8 @@ console.log(`mirror=${mirror.states.length} states, ${mirror.edges.length} direc
 console.log(`corridor=${corridor.states.length} anchors, ${corridor.edges.length} directed macro edges`);
 console.log(`corridor shortest=${corridor.meta.primitiveShortestGoalDistance} primitive steps / ${corridor.meta.operationShortestGoalDistance} macro operations`);
 console.log('Cao Cao groups=12 exact / 8 mirror / 8 corridor; changing edges contain a Cao Cao step');
+console.log(`exact Cao Cao class neighbors=${caoExactWitnesses.length}; every pair has a concrete one-step witness`);
+for (const { pair, edge, step } of caoExactWitnesses) {
+  console.log(`  ${pair}: #${edge.source} -> #${edge.target} (${step.direction})`);
+}
 console.log('local state-space files and expansion paths valid: true');

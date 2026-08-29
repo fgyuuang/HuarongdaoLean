@@ -11,6 +11,8 @@
     "analyze:symmetry": "node scripts/analyze-shortest-path-symmetry.mjs",
     "serve": "node scripts/serve.mjs",
     "check:generic": "node scripts/check-generic.mjs",
+    "gen:cao-certificate": "node scripts/gen-cao-certificate.mjs",
+    "check:cao-certificate": "lake build Huarongdao.CaoProjectionCertificate",
     "check:layout": "node scripts/check-layout.mjs",
     "check:state-spaces": "node scripts/check-local-state-spaces.mjs",
     "check:certificates": "lake exe check-certificate",
