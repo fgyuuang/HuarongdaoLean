@@ -3,21 +3,6 @@ import Std.Tactic
 
 namespace Huarongdao
 
-namespace Direction
-
-/-- The inverse direction of a primitive sliding-block move. -/
-def reverse : Direction → Direction
-  | .up => .down
-  | .down => .up
-  | .left => .right
-  | .right => .left
-
-@[simp] theorem reverse_reverse (direction : Direction) :
-    direction.reverse.reverse = direction := by
-  cases direction <;> rfl
-
-end Direction
-
 theorem translated_reverse {source target : Pos} {direction : Direction}
     (translatedForward : translated source direction = some target) :
     translated target direction.reverse = some source := by

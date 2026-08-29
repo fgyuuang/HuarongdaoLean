@@ -14,13 +14,24 @@ def classicQuotientGraph : Graph :=
 structure ClassicQuotientGraphCertificate (graph : Graph) where
   valid : ∀ vertex : Fin graph.states.size, ValidState graph.states[vertex]
 
+/-- Executable validity check for every stored quotient representative. -/
+def checkClassicQuotientGraphValid : Bool :=
+  classicQuotientGraph.states.all valid
+
+/-- The complete classic quotient enumeration stores only valid states. -/
+theorem classicQuotientGraph_valid_checked :
+    checkClassicQuotientGraphValid = true := by
+  set_option maxHeartbeats 0 in
+  native_decide
+
 /-- Native evaluation checks the certificate conditions for the complete
     classic quotient graph. -/
 def classicQuotientGraphCertificate : ClassicQuotientGraphCertificate classicQuotientGraph where
   valid := by
-    set_option maxHeartbeats 0 in
     intro vertex
-    native_decide
+    exact
+      (Array.all_eq_true.mp classicQuotientGraph_valid_checked)
+        vertex vertex.2
 
 /-- Native evaluation checks the complete finite graph conditions consumed by
     the generic soundness theorem in `Search.lean`. -/

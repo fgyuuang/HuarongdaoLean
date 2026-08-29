@@ -45,6 +45,17 @@ def Direction.all : List Direction := [.up, .down, .left, .right]
 def Direction.label : Direction → String
   | .up => "上" | .down => "下" | .left => "左" | .right => "右"
 
+/-- The inverse direction of a primitive sliding-block move. -/
+def Direction.reverse : Direction → Direction
+  | .up => .down
+  | .down => .up
+  | .left => .right
+  | .right => .left
+
+@[simp] theorem Direction.reverse_reverse (direction : Direction) :
+    direction.reverse.reverse = direction := by
+  cases direction <;> rfl
+
 structure State where
   positions : Array Pos
   deriving Repr, DecidableEq, BEq, ReflBEq, LawfulBEq, Hashable

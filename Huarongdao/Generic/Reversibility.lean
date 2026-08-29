@@ -2,21 +2,6 @@ import Huarongdao.Generic.Transition
 import Huarongdao.Generic.Enumeration
 import Std.Tactic
 
-namespace Huarongdao.Direction
-
-/-- The inverse direction of a primitive sliding-block move. -/
-def reverse : Direction → Direction
-  | .up => .down
-  | .down => .up
-  | .left => .right
-  | .right => .left
-
-@[simp] theorem reverse_reverse (direction : Direction) :
-    direction.reverse.reverse = direction := by
-  cases direction <;> rfl
-
-end Huarongdao.Direction
-
 namespace SlidingPuzzle
 
 open Huarongdao

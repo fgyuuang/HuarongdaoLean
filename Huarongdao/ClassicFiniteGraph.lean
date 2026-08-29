@@ -7,6 +7,11 @@ namespace Huarongdao
 /-- A vertex of the finite classic quotient presentation is an array index. -/
 abbrev ClassicQuotientVertex (graph : Graph) := Fin graph.states.size
 
+/-- The representative stored at a finite quotient vertex. -/
+def ClassicQuotientVertex.state
+    (vertex : ClassicQuotientVertex graph) : State :=
+  graph.states[vertex.1]
+
 /-- `QStep` between two states is witnessed by a legal move whose target is
     equal-shape equivalent to the displayed representative. -/
 theorem QStep_iff_exists_legalMove {s t : State} :
@@ -26,21 +31,23 @@ def classicQuotientSimpleGraph
     (certificate : ClassicQuotientGraphCertificate graph) :
     SimpleGraph (ClassicQuotientVertex graph) where
   Adj source target :=
-    source ≠ target ∧ QStep graph.states[source] graph.states[target]
-  symm := by
+    source ≠ target ∧ QStep source.state target.state
+  symm := ⟨by
     intro source target adjacent
     exact ⟨adjacent.1.symm,
       qstep_symm_of_valid
-        (certificate.valid source) (certificate.valid target) adjacent.2⟩
-  loopless := by
+        (by simpa [ClassicQuotientVertex.state] using certificate.valid source)
+        (by simpa [ClassicQuotientVertex.state] using certificate.valid target)
+        adjacent.2⟩⟩
+  loopless := ⟨by
     intro vertex self
-    exact self.1 rfl
+    exact self.1 rfl⟩
 
 @[simp] theorem classicQuotientSimpleGraph_adj
     (certificate : ClassicQuotientGraphCertificate graph)
     (source target : ClassicQuotientVertex graph) :
     certificate.classicQuotientSimpleGraph.Adj source target ↔
-      source ≠ target ∧ QStep graph.states[source] graph.states[target] := by
+      source ≠ target ∧ QStep source.state target.state := by
   rfl
 
 /-- Executable adjacency test for the finite quotient graph. -/
@@ -48,8 +55,8 @@ def classicQuotientAdjBool
     (certificate : ClassicQuotientGraphCertificate graph)
     (source target : ClassicQuotientVertex graph) : Bool :=
   decide (source ≠ target) &&
-    (legalMoves (graph.states[source])).any fun move =>
-      decide (SameShape move.2.2 (graph.states[target]))
+    (legalMoves source.state).any fun move =>
+      decide (SameShape move.2.2 target.state)
 
 theorem classicQuotientAdjBool_iff
     (certificate : ClassicQuotientGraphCertificate graph)
@@ -72,7 +79,7 @@ theorem classicQuotientAdjBool_iff
     · exact by simp [distinct]
     · rw [List.any_eq_true]
       rcases (QStep_iff_exists_legalMove.mp step) with ⟨move, member, sameShape⟩
-      exact ⟨move, member, by simp [sameShape]⟩
+      exact ⟨move, member, by simpa using sameShape⟩
 
 instance classicQuotientSimpleGraphDecidableAdj
     (certificate : ClassicQuotientGraphCertificate graph) :

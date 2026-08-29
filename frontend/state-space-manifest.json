@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "kind": "huarongdao-state-space-manifest",
-  "generatedAt": "2026-08-29T01:55:53.766Z",
-  "gitRevision": "14605e52fe39a428cc6ad7aeba40de51796ac9f8",
+  "generatedAt": "2026-08-29T04:58:57.253Z",
+  "gitRevision": "b220f4c992bbcf50d9073ba80ae920c9694b62d4",
   "toolchain": {
     "lean": "leanprover/lean4:v4.33.1",
     "mathlibRevision": "v4.33.1"
@@ -30,9 +30,9 @@
     "Huarongdao/Model.lean": {
       "path": "Huarongdao/Model.lean",
       "present": true,
-      "bytes": 5311,
-      "sha256": "af008c7409d277cb07e54f8aa136cb6ba0aee203a539589a3cc779ceeac0284d",
-      "modifiedAt": "2026-08-27T04:28:57.730Z"
+      "bytes": 5641,
+      "sha256": "d17df5f38e4e70214fca74764083535c367965df468a602eeee1a8fa277b7e0a",
+      "modifiedAt": "2026-08-29T04:29:18.701Z"
     },
     "Huarongdao/Transition.lean": {
       "path": "Huarongdao/Transition.lean",
@@ -93,16 +93,16 @@
     "Huarongdao/ClassicContinuousClassCard.lean": {
       "path": "Huarongdao/ClassicContinuousClassCard.lean",
       "present": true,
-      "bytes": 16699,
-      "sha256": "87b75de8f6004e23c5c7b284323ee747d18ae1c4a3f366a24b2b20044eaf5619",
-      "modifiedAt": "2026-08-29T01:52:26.961Z"
+      "bytes": 16834,
+      "sha256": "b224062d260ec4941953f39e0520992ac83d04f3c9183ecfc670ec0d94b23929",
+      "modifiedAt": "2026-08-29T02:58:43.116Z"
     },
     "Huarongdao/ClassicFullSpaceCachedCertificate.lean": {
       "path": "Huarongdao/ClassicFullSpaceCachedCertificate.lean",
       "present": true,
-      "bytes": 1882,
-      "sha256": "7b887af968ef6379fdc71ba8d8ebc2b1748b86b799889ab434a400724bc3cc47",
-      "modifiedAt": "2026-08-29T01:48:17.109Z"
+      "bytes": 3963,
+      "sha256": "136326256c9e8cbf67554ed063c1e8b1eb0c4690956f6e0930135c7285457a51",
+      "modifiedAt": "2026-08-29T02:58:30.939Z"
     },
     "scripts/state-space-cache.mjs": {
       "path": "scripts/state-space-cache.mjs",
@@ -114,9 +114,9 @@
     "package.json": {
       "path": "package.json",
       "present": true,
-      "bytes": 1851,
-      "sha256": "b8d4101db81522d9058a9324ce114c8b7c554896c61c3ba50a89f89a0127db1c",
-      "modifiedAt": "2026-08-29T01:47:37.476Z"
+      "bytes": 2141,
+      "sha256": "4498868bd7ac158f61109d4d09865a38e85409c19729a759bd18bbf76ffa622f",
+      "modifiedAt": "2026-08-29T04:15:20.827Z"
     }
   },
   "spaces": {
