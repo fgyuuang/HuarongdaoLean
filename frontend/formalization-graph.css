@@ -1,0 +1,393 @@
+.summary-status {
+  align-self: start;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--teal) 45%, var(--line));
+  color: var(--teal);
+  font: 800 8px/1.4 ui-monospace, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.theorem-dependency-section {
+  overflow: hidden;
+}
+
+.theorem-dependency-section > .formal-section-heading {
+  align-items: center;
+}
+
+.theorem-graph-legend {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.graph-legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.graph-legend-dot.kernel {
+  background: var(--teal);
+}
+
+.graph-legend-dot.checked {
+  background: var(--gold);
+}
+
+.graph-legend-dot.conditional {
+  background: var(--red);
+}
+
+.theorem-dependency-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  min-height: 680px;
+}
+
+.theorem-dependency-viewport {
+  min-width: 0;
+  overflow: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+.theorem-dependency-map {
+  position: relative;
+  width: 1080px;
+  height: 680px;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--line) 36%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--line) 36%, transparent) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.theorem-graph-svg {
+  position: absolute;
+  inset: 0;
+  width: 1080px;
+  height: 680px;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.theorem-graph-svg marker path {
+  fill: var(--muted);
+}
+
+.theorem-graph-edge {
+  opacity: .64;
+}
+
+.theorem-graph-edge.selected {
+  opacity: 1;
+}
+
+.theorem-graph-edge path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--muted) 62%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  marker-end: url(#theorem-arrow);
+  transition: stroke .15s ease, stroke-width .15s ease, opacity .15s ease;
+}
+
+.theorem-graph-edge.selected path {
+  stroke: var(--red);
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
+
+.theorem-graph-lane {
+  position: absolute;
+  left: 12px;
+  z-index: 1;
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  font: 800 8px ui-monospace, Consolas, monospace;
+  letter-spacing: 1px;
+  pointer-events: none;
+}
+
+.lane-foundation {
+  top: 15px;
+}
+
+.lane-bridge {
+  top: 176px;
+}
+
+.lane-result {
+  top: 496px;
+  color: var(--red);
+}
+
+.theorem-graph-node {
+  position: absolute;
+  z-index: 2;
+  width: 190px;
+  height: 92px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--muted);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 5px 12px color-mix(in srgb, var(--ink) 7%, transparent);
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+.theorem-graph-node:hover {
+  transform: translateY(-2px);
+  border-color: var(--red);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.theorem-graph-node.active {
+  border-color: var(--red);
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--red) 24%, transparent),
+    0 8px 18px color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.theorem-graph-node.kernel {
+  border-top-color: var(--teal);
+}
+
+.theorem-graph-node.checked {
+  border-top-color: var(--gold);
+}
+
+.theorem-graph-node.conditional {
+  border-top-color: var(--red);
+}
+
+.theorem-graph-node-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 5px;
+}
+
+.theorem-graph-node-top > i {
+  min-width: 0;
+  color: var(--muted);
+  font: 8px ui-monospace, Consolas, monospace;
+  font-style: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theorem-graph-node .evidence-badge {
+  height: 18px;
+  padding: 0 4px;
+  font-size: 7px;
+}
+
+.theorem-graph-node strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theorem-graph-node code {
+  display: block;
+  margin-top: 6px;
+  color: var(--red);
+  font-size: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theorem-dependency-detail {
+  padding: 18px 16px;
+  background: var(--panel);
+}
+
+.theorem-dependency-detail h3 {
+  margin: 6px 0 7px;
+  font: 700 17px/1.25 serif;
+}
+
+.theorem-dependency-id {
+  display: block;
+  color: var(--red);
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+
+.theorem-dependency-detail > .evidence-badge {
+  margin-bottom: 7px;
+}
+
+.theorem-dependency-detail > p {
+  margin: 13px 0 17px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.dependency-detail-block {
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.dependency-detail-block > b {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 9px;
+}
+
+.dependency-link-list {
+  display: grid;
+  gap: 5px;
+}
+
+.dependency-link-list button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--red);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dependency-link-list button:hover {
+  border-color: var(--red);
+}
+
+.dependency-link-list code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 8px;
+}
+
+.dependency-link-list small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.dependency-empty {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.theorem-graph-source {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+}
+
+.theorem-dependency-note {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.theorem-dependency-note span {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.theorem-dependency-note span i {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+.theorem-dependency-note strong {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font: 8px ui-monospace, Consolas, monospace;
+}
+
+@media (max-width: 900px) {
+  .theorem-dependency-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .theorem-dependency-viewport {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .theorem-dependency-detail {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 15px;
+  }
+
+  .theorem-dependency-detail > .section-kicker,
+  .theorem-dependency-detail > h3,
+  .theorem-dependency-detail > .evidence-badge,
+  .theorem-dependency-detail > .theorem-dependency-id,
+  .theorem-dependency-detail > p,
+  .theorem-graph-source {
+    grid-column: 1 / -1;
+  }
+
+  .theorem-dependency-note {
+    display: block;
+  }
+
+  .theorem-dependency-note strong {
+    display: block;
+    margin-top: 6px;
+  }
+
+  .theorem-graph-legend {
+    justify-content: flex-start;
+  }
+
+  .summary-status {
+    display: inline-block;
+    margin-top: 12px;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 620px) {
+  .theorem-dependency-detail {
+    display: block;
+  }
+
+  .theorem-dependency-detail h3 {
+    font-size: 16px;
+  }
+
+  .theorem-dependency-map {
+    width: 1040px;
+  }
+}

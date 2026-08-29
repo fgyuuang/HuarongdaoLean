@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "node scripts/prepare-sites-build.mjs",
+    "test:sites": "node --test tests/sites-worker.test.mjs",
     "export": "lake exe export-graph frontend/graph.json shape",
     "export:mirror": "lake exe export-graph frontend/graph.mirror.json mirror",
     "layout": "node scripts/import-reference-layout.mjs",

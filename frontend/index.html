@@ -6,11 +6,13 @@
   <title>华容道状态图</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="styles.css?v=local-state-spaces-3">
+  <link rel="stylesheet" href="formalization.css?v=lean-workbench-1">
+  <link rel="stylesheet" href="formalization-graph.css?v=theorem-dependency-1">
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="seal">华</span><div><strong>华容道状态图</strong><small>Lean 4 verified transition system</small></div></div>
-    <nav class="mode-switch" aria-label="探索模式"><button id="mode-classic" class="active">经典华容道</button><button id="mode-lab">关卡实验室</button></nav>
+    <nav class="mode-switch" aria-label="探索模式"><button id="mode-classic" class="active">经典华容道</button><button id="mode-lab">关卡实验室</button><button id="mode-formalization">形式化工作台</button></nav>
     <label class="state-space-picker">
       <span>状态空间</span>
       <select id="state-space-layer" aria-label="选择形式化状态空间">
@@ -200,6 +202,41 @@
     </section>
   </main>
 
+  <main id="formalization-workspace" class="formalization-workspace" hidden>
+    <aside class="formal-sidebar">
+      <header class="formal-sidebar-header">
+        <span class="formal-mark">L4</span>
+        <div><strong>Lean 4 工作台</strong><small>FORMALIZATION ATLAS</small></div>
+      </header>
+      <nav id="formal-nav" class="formal-nav" aria-label="形式化工作台导航">
+        <button class="active" data-formal-view="overview"><span>01</span><b>成果总览</b><small>当前状态与大定理</small></button>
+        <button data-formal-view="chain"><span>02</span><b>证明链条</b><small>依赖关系与提升</small></button>
+        <button data-formal-view="theorems"><span>03</span><b>定理图谱</b><small>按证据层浏览</small></button>
+        <button data-formal-view="source"><span>04</span><b>Lean 源码</b><small>原文与行号</small></button>
+        <button data-formal-view="kernel"><span>05</span><b>内核透镜</b><small>Lean 组件解释</small></button>
+      </nav>
+      <footer class="formal-sidebar-footer">
+        <div><i class="status-dot"></i><span>项目状态</span><b>可编译主线</b></div>
+        <code>lean-toolchain · lake</code>
+        <span>前端展示不替代内核检查；每个结论保留证据等级。</span>
+      </footer>
+    </aside>
+    <section class="formal-main">
+      <header class="formal-main-header">
+        <div>
+          <span class="eyebrow">PROJECT SYNTHESIS · LEAN 4</span>
+          <h1>华容道形式化成果工作台</h1>
+          <p>从合法棋盘到有限状态空间，从路径见证到全局最短性：把可读的数学解释和可检查的 Lean 结构放在同一条链上。</p>
+        </div>
+        <div class="formal-header-actions">
+          <span class="formal-build-status"><i></i><b>LEAN 4</b> proof-carrying</span>
+          <button id="formal-copy-link" class="formal-icon-action" title="复制当前工作台视图">⧉</button>
+        </div>
+      </header>
+      <div id="formal-content" class="formal-content"></div>
+    </section>
+  </main>
+
   <main id="laboratory" class="laboratory" hidden>
     <aside class="lab-editor">
       <header><span class="eyebrow">GENERIC SLIDING PUZZLE</span><h1>关卡规格</h1><p>编号矩形块 · 单格滑动 · 指定位置目标</p></header>
@@ -267,5 +304,6 @@
   <script src="vendor/3d-force-graph.min.js"></script>
   <script type="module" src="app.js?v=local-topology-projections-1"></script>
   <script type="module" src="laboratory.js?v=local-state-spaces-4"></script>
+  <script type="module" src="formalization.js?v=lean-workbench-1"></script>
 </body>
 </html>

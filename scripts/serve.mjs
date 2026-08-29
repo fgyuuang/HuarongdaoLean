@@ -1,13 +1,13 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, relative as relativePath, sep } from 'node:path';
 
 const projectRoot = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const root = normalize(join(projectRoot, 'frontend'));
 const solver = normalize(join(projectRoot, '.lake', 'build', 'bin', 'solve-puzzle.exe'));
 const port = Number(process.env.PORT || 4173);
-const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8' };
+const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.lean': 'text/plain; charset=utf-8' };
 
 function sendJson(response, status, payload) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -76,9 +76,22 @@ createServer(async (request, response) => {
       const { args, timeoutMs } = solverArgs(payload);
       return sendJson(response, 200, await runSolver(args, timeoutMs));
     }
+    if (request.method === 'GET' && url.pathname === '/api/source') {
+      const requested = decodeURIComponent(url.searchParams.get('path') || '').replaceAll('/', sep);
+      const file = normalize(join(projectRoot, requested));
+      const projectRelative = relativePath(projectRoot, file);
+      const firstSegment = projectRelative.split(sep)[0];
+      if (!requested.endsWith('.lean') || firstSegment !== 'Huarongdao' || projectRelative.startsWith('..') || projectRelative.includes(`${sep}..${sep}`)) {
+        throw Object.assign(new Error('source path is not allowed'), { status: 404 });
+      }
+      const info = await stat(file);
+      if (!info.isFile()) throw Object.assign(new Error('source file not found'), { status: 404 });
+      response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-cache' });
+      return response.end(await readFile(file));
+    }
     if (request.method !== 'GET' && request.method !== 'HEAD') return sendJson(response, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Only GET, HEAD and POST /api/puzzle/solve are supported' } });
-    const relative = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
-    const file = normalize(join(root, relative));
+    const staticRelative = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
+    const file = normalize(join(root, staticRelative));
     if (!file.startsWith(root)) throw Object.assign(new Error('invalid path'), { status: 404 });
     const info = await stat(file);
     if (!info.isFile()) throw Object.assign(new Error('not a file'), { status: 404 });
