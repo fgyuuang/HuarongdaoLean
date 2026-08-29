@@ -322,6 +322,34 @@ npm run serve
 
 浏览器打开 <http://127.0.0.1:4173>。也可用 `npm run check` 同时验证 Lean 构建和前端脚本语法。
 
+## 状态空间持久化与缓存
+
+状态空间数据分成四个可独立复用的层：
+
+| 层 | 主要文件 | 内容 |
+| --- | --- | --- |
+| `classic-full-shape` | `frontend/full-shape-components.json` | 65,880 个同形合法布局、898 个连续分量摘要 |
+| `classic-shape-quotient` | `frontend/graph.json`、`frontend/layout.json` | 经典同形商图及坐标 |
+| `mirror-quotient` | `frontend/graph.mirror.json`、`frontend/layout.mirror.json` | 水平镜像商图及坐标 |
+| `corridor` | `frontend/graph.corridor.json`、`frontend/layout.corridor.json` | 带权决策骨架和可回放宏边 |
+
+`frontend/state-space-manifest.json` 是这些产物的统一索引。它记录每个文件的
+SHA-256、字节数、修改时间、来源证书、状态数量、边数量、分量数量和工具链版本。
+坐标文件被视为与对应图文件的状态顺序绑定的展示缓存，不作为 Lean 数学证书。
+
+缓存命令只读取现有文件，不重新执行 Lean 证书：
+
+```bash
+npm run cache:status   # 检查源文件和产物指纹，退出码 2 表示需要刷新
+npm run cache:write    # 根据当前已有产物写入/更新 manifest
+```
+
+只要某个空间的生成器依赖和产物 SHA-256 没有变化，后续导出器、前端和报告都应直接复用
+manifest 指向的文件；不要以重新运行 `native_decide` 作为缓存命中检查。只改证明接口
+不会使状态图和布局空间失效。
+Lean 证明侧的共享入口是 `Huarongdao.ClassicFullSpaceCachedCertificate`。
+该模块只投影 `ClassicFullSpaceCertificate` 已经生成的证明对象，不引入新的全空间计算。
+
 ## 关键文件
 
 - `Huarongdao/Model.lean`：棋盘、合法性、移动、目标和经典布局

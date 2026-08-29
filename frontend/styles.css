@@ -164,6 +164,21 @@ dialog{color:var(--ink)}dialog::backdrop{background:rgba(18,22,19,.62);backdrop-
   .ring-metrics>div:nth-child(3){border-right:0}
   .ring-analysis-body{grid-template-columns:1fr}
 }
+.ring-spectrum-panel{max-width:1120px;margin:0 auto 14px;padding:12px 15px;border:1px solid var(--line);background:var(--panel)}
+.ring-spectrum-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.ring-spectrum-panel header small{display:block;color:var(--red);font:800 9px ui-monospace,Consolas,monospace;letter-spacing:1.2px}
+.ring-spectrum-panel h3{margin:4px 0 0;font-size:13px}
+.ring-spectrum-panel header>span{color:var(--muted);font-size:9px;text-align:right}
+.ring-length-spectrum{display:grid;grid-template-columns:repeat(9,minmax(56px,1fr));gap:7px}
+.ring-spectrum-item{min-width:0;padding:0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.ring-spectrum-item:hover b{color:var(--red)}
+.ring-spectrum-item>b{display:block;color:var(--ink);font:700 10px ui-monospace,Consolas,monospace}
+.ring-spectrum-item>span{display:block;height:8px;margin:5px 0;background:color-mix(in srgb,var(--line) 65%,transparent)}
+.ring-spectrum-item i{display:block;height:100%;min-width:4px;background:var(--teal)}
+.ring-spectrum-item small{display:block;color:var(--muted);font-size:8px;line-height:1.35}
+.ring-spectrum-empty{display:block;padding:10px 0;color:var(--muted);font-size:10px}
+.ring-branch b{overflow-wrap:anywhere}
+@media(max-width:760px){.ring-spectrum-panel>header{display:block}.ring-spectrum-panel header>span{display:block;margin-top:5px;text-align:left}.ring-length-spectrum{grid-template-columns:repeat(3,minmax(72px,1fr))}.ring-analysis-actions{flex-wrap:wrap}.ring-analysis-actions button:last-child{flex:1}}
 @media(max-width:620px){
   .ring-analysis-heading h2{font-size:21px}
   .ring-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}

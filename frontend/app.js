@@ -19,6 +19,9 @@ const requestedStateSpace = query.get('space');
 const stateSpaceLayer = ['shape', 'mirror', 'corridor'].includes(requestedStateSpace)
   ? requestedStateSpace
   : 'mirror';
+const requestedGraphMode = ['overview', 'force', 'explore', 'topology', 'ring'].includes(query.get('view'))
+  ? query.get('view')
+  : 'overview';
 const isShapeSpace = stateSpaceLayer === 'shape';
 const isMirrorSpace = stateSpaceLayer === 'mirror';
 const isCorridorSpace = stateSpaceLayer === 'corridor';
@@ -27,7 +30,7 @@ const dataFiles = {
   mirror: { graph: 'graph.mirror.json', layout: 'layout.mirror.json' },
   corridor: { graph: 'graph.corridor.json', layout: 'layout.corridor.json' }
 }[stateSpaceLayer];
-const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle cao-merge-label goal-sink-toggle cao-position-filter cao-trace-detail ring-island-view ring-analysis-fit ring-analysis-go-goal ring-dag-distance ring-dag-count ring-branch-count ring-merge-count ring-square-count ring-path-count ring-proof-status ring-diagram ring-analysis-note ring-candidate-list'.split(' ');
+const ids = 'board state-count edge-count depth-count status-badge node-id distance degree selection last-move graph graph-force graph-wrap loading graph-summary zoom-label explored-count graph-count-label node-tooltip lean-valid lean-goal lean-transition result-dialog result-node result-moves result-distance result-optimal result-certification proof-dialog route-start-id route-end-id force-settings force-settings-toggle force-reset force-rest force-spring force-repulsion force-plane force-node-size force-damping force-line-width force-rest-value force-spring-value force-repulsion-value force-plane-value force-node-size-value force-damping-value force-line-width-value force3d-actions force3d-reheat force3d-pin force3d-status random-walk-toggle random-walk-status quotient-contract quotient-contract-toggle quotient-contract-value state-space-layer proof-trace proof-claim proof-explanation proof-step-list proof-tree proof-code proof-code-status proof-exact-count proof-quotient-count proof-length cao-controls cao-view-toggle cao-merge-toggle cao-merge-label goal-sink-toggle cao-position-filter cao-trace-detail ring-island-view ring-analysis-fit ring-analysis-go-goal ring-analysis-roundtrip ring-dag-distance ring-dag-count ring-branch-count ring-merge-count ring-square-count ring-path-count ring-proof-status ring-diagram-title ring-diagram ring-analysis-note ring-candidate-list ring-spectrum-summary ring-length-spectrum'.split(' ');
 const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
 let graphData, layoutData, parentGraphData = null, outgoing, shortestGoalDistance = 0, shortestOperationDistance = 0;
@@ -175,6 +178,7 @@ async function loadGraph() {
   if (loadingTitle) loadingTitle.textContent = `载入 ${graphData.meta.stateCount.toLocaleString()} 个状态节点`;
   ui.loading.classList.add('hidden');
   renderState(0, false);
+  if (requestedGraphMode !== 'overview') setGraphMode(requestedGraphMode, false);
   requestAnimationFrame(fitGraph);
 }
 
@@ -1415,7 +1419,8 @@ function updateGraphState() {
     ui['graph-summary'].textContent = ringAnalysis
       ? '最短路环岛 · ' + ringAnalysis.branchCount.toLocaleString() + ' 个分叉点 · ' +
         ringAnalysis.mergeCount.toLocaleString() + ' 个汇合点 · ' +
-        ringAnalysis.squareCount.toLocaleString() + ' 个环岛候选'
+        ringAnalysis.squareCount.toLocaleString() + ' 个四边形 · ' +
+        ringAnalysis.ringCandidateCount.toLocaleString() + ' 个多尺度候选'
       : '正在提取最短路 DAG';
   }
   updateZoomLabel(graphMode === 'force' ? forceCameraDistance() : camera.position.distanceTo(controls.target));
@@ -1438,10 +1443,16 @@ function analyzeShortestRingIslands() {
       branchCount: 0,
       mergeCount: 0,
       squareCount: 0,
+      ringCandidateCount: 0,
+      lengthSpectrum: {},
+      minBranchLength: 0,
+      maxBranchLength: 0,
+      closedWalkLength: shortestGoalDistance * 2,
       pathCount: 0,
       distance: shortestGoalDistance,
       first: null,
-      candidates: []
+      candidates: [],
+      roundTripPaths: null
     };
   }
   const count = graphData.states.length;
@@ -1474,23 +1485,61 @@ function analyzeShortestRingIslands() {
     if (shortestIn[id].length >= 2) merges.push(id);
   }
 
-  const candidateMap = new Map();
-  let squareCount = 0;
+  // Search the product DAG of two distinct outgoing arms. A meeting at the
+  // same level gives two equal-length internally disjoint paths.
+  const ringMap = new Map();
   for (const entry of branches) {
     const children = shortestOut[entry];
     for (let leftIndex = 0; leftIndex < children.length; leftIndex += 1) {
       for (let rightIndex = leftIndex + 1; rightIndex < children.length; rightIndex += 1) {
         const left = children[leftIndex], right = children[rightIndex];
-        const rightNext = new Set(shortestOut[right]);
-        const common = shortestOut[left].filter(id => rightNext.has(id));
-        for (const exit of common) {
-          squareCount += 1;
-          const key = entry + ':' + exit;
-          if (!candidateMap.has(key)) candidateMap.set(key, { entry, exit, upper: left, lower: right });
+        let frontier = [{ left, right, upperPath: [left], lowerPath: [right] }];
+        const visited = new Set([left + ':' + right]);
+        while (frontier.length) {
+          const next = [];
+          for (const item of frontier) {
+            for (const nextLeft of shortestOut[item.left]) {
+              for (const nextRight of shortestOut[item.right]) {
+                const branchLength = graphData.states[nextLeft].distance - graphData.states[entry].distance;
+                if (nextLeft === nextRight) {
+                  const key = entry + ':' + nextLeft;
+                  if (!ringMap.has(key)) {
+                    ringMap.set(key, {
+                      entry,
+                      exit: nextLeft,
+                      upperPath: [entry, ...item.upperPath, nextLeft],
+                      lowerPath: [entry, ...item.lowerPath, nextRight],
+                      branchLength
+                    });
+                  }
+                  continue;
+                }
+                const pairKey = nextLeft + ':' + nextRight;
+                if (visited.has(pairKey)) continue;
+                visited.add(pairKey);
+                next.push({
+                  left: nextLeft,
+                  right: nextRight,
+                  upperPath: [...item.upperPath, nextLeft],
+                  lowerPath: [...item.lowerPath, nextRight]
+                });
+              }
+            }
+          }
+          frontier = next;
         }
       }
     }
   }
+
+  const allCandidates = [...ringMap.values()]
+    .sort((a, b) => a.branchLength - b.branchLength || a.entry - b.entry || a.exit - b.exit);
+  const lengthSpectrum = {};
+  for (const candidate of allCandidates) {
+    lengthSpectrum[candidate.branchLength] = (lengthSpectrum[candidate.branchLength] || 0) + 1;
+  }
+  const branchLengths = allCandidates.map(candidate => candidate.branchLength);
+  const squareCount = lengthSpectrum[2] || 0;
 
   const ways = new Array(count).fill(0);
   const dagNodes = graphData.states.filter(state => onDag[state.id])
@@ -1498,20 +1547,69 @@ function analyzeShortestRingIslands() {
   for (const state of dagNodes) {
     ways[state.id] = state.goal ? 1 : shortestOut[state.id].reduce((sum, id) => sum + ways[id], 0);
   }
-  const candidates = [...candidateMap.values()]
-    .sort((a, b) =>
-      graphData.states[a.entry].distance - graphData.states[b.entry].distance ||
-      a.entry - b.entry ||
-      a.exit - b.exit)
+  const candidates = allCandidates
     .slice(0, 12)
     .map(candidate => ({
       ...candidate,
-      upperEdge: edgeByPair.get(candidate.entry + ':' + candidate.upper),
-      lowerEdge: edgeByPair.get(candidate.entry + ':' + candidate.lower),
-      upperExitEdge: edgeByPair.get(candidate.upper + ':' + candidate.exit),
-      lowerExitEdge: edgeByPair.get(candidate.lower + ':' + candidate.exit)
+      upperEdge: edgeByPair.get(candidate.entry + ':' + candidate.upperPath[1]),
+      lowerEdge: edgeByPair.get(candidate.entry + ':' + candidate.lowerPath[1]),
+      upperExitEdge: edgeByPair.get(candidate.upperPath.at(-1) + ':' + candidate.exit),
+      lowerExitEdge: edgeByPair.get(candidate.lowerPath.at(-1) + ':' + candidate.exit)
     }));
   const first = candidates[0] || null;
+
+  const pathToAnyGoal = start => {
+    const path = [start];
+    let node = start;
+    while (!graphData.states[node].goal && shortestOut[node]?.length) {
+      node = shortestOut[node][0];
+      path.push(node);
+    }
+    return graphData.states[node]?.goal ? path : [];
+  };
+  const pathBetween = (start, target) => {
+    if (start === target) return [start];
+    const parent = new Int32Array(count);
+    parent.fill(-2);
+    parent[start] = -1;
+    const queue = new Int32Array(count);
+    let head = 0, tail = 1;
+    queue[0] = start;
+    while (head < tail && parent[target] === -2) {
+      const node = queue[head++];
+      for (const next of shortestOut[node]) {
+        if (parent[next] !== -2) continue;
+        parent[next] = node;
+        queue[tail++] = next;
+      }
+    }
+    if (parent[target] === -2) return [];
+    const path = [];
+    for (let node = target; node !== -1; node = parent[node]) path.push(node);
+    return path.reverse();
+  };
+  const completePath = (entry, exit, arm) => {
+    if (!arm) return [];
+    const start = graphData.meta.initial;
+    const prefix = pathBetween(start, entry);
+    const suffix = pathToAnyGoal(exit);
+    if (!prefix.length || !suffix.length) return [];
+    return [...prefix, ...arm.slice(1), ...suffix.slice(1)];
+  };
+  const completeRingPath = (candidate, arm) =>
+    completePath(candidate.entry, candidate.exit, arm);
+  for (const candidate of allCandidates) {
+    candidate.fullUpperPath = completeRingPath(candidate, candidate.upperPath);
+    candidate.fullLowerPath = completeRingPath(candidate, candidate.lowerPath);
+  }
+  for (const candidate of candidates) {
+    candidate.fullUpperPath = completeRingPath(candidate, candidate.upperPath);
+    candidate.fullLowerPath = completeRingPath(candidate, candidate.lowerPath);
+  }
+  const roundTripPaths = first
+    ? { upper: first.fullUpperPath, lower: first.fullLowerPath }
+    : null;
+
   return {
     unsupported: false,
     distance: shortestGoalDistance,
@@ -1519,20 +1617,58 @@ function analyzeShortestRingIslands() {
     branchCount: branches.length,
     mergeCount: merges.length,
     squareCount,
+    ringCandidateCount: allCandidates.length,
+    lengthSpectrum,
+    minBranchLength: branchLengths[0] || 0,
+    maxBranchLength: branchLengths.at(-1) || 0,
+    closedWalkLength: shortestGoalDistance * 2,
     pathCount: ways[0] || 0,
     branches,
     merges,
     shortestOut,
     shortestIn,
     edgeByPair,
+    allCandidates,
     candidates,
     first,
-    focused: first
+    focused: first,
+    roundTripPaths
   };
 }
 
 function ringNodeMarkup(id, role) {
   return `<button class="ring-node ${role}" data-ring-node="${id}" title="定位状态 #${id}"><b>#${id}</b><span>${role === 'entry' ? '入口 / 分叉' : role === 'exit' ? '出口 / 汇合' : '中间状态'}</span></button>`;
+}
+
+function ringPathText(path) {
+  return path.map(id => '#' + id).join(' → ');
+}
+
+function ringActionsText(path, edgeByPair) {
+  return path.slice(1)
+    .map((id, index) => actionText(edgeByPair.get(path[index] + ':' + id)))
+    .join('；');
+}
+
+function renderRingLengthSpectrum(analysis) {
+  if (!ui['ring-length-spectrum']) return;
+  if (!analysis || analysis.unsupported) {
+    ui['ring-spectrum-summary'].textContent = '当前层不支持逐步环岛';
+    ui['ring-length-spectrum'].innerHTML = '<span class="ring-spectrum-empty">切换到同形商或镜像商后查看长度谱。</span>';
+    return;
+  }
+  const entries = Object.entries(analysis.lengthSpectrum)
+    .map(([length, count]) => ({ length: Number(length), count }))
+    .sort((a, b) => a.length - b.length);
+  const maxCount = Math.max(1, ...entries.map(item => item.count));
+  ui['ring-spectrum-summary'].textContent =
+    `${analysis.ringCandidateCount.toLocaleString()} 个候选 · 支路 ${analysis.minBranchLength}–${analysis.maxBranchLength} 步 · 周长 ${analysis.minBranchLength * 2}–${analysis.maxBranchLength * 2} 步`;
+  ui['ring-length-spectrum'].innerHTML = entries.map(item => `
+    <button type="button" class="ring-spectrum-item" data-ring-length="${item.length}" title="查看支路 ${item.length} 步的第一个环岛">
+      <b>${item.length}步</b>
+      <span><i style="width:${Math.max(5, Math.round(item.count / maxCount * 100))}%"></i></span>
+      <small>${item.count.toLocaleString()} 个 · 周长 ${item.length * 2}</small>
+    </button>`).join('');
 }
 
 function renderRingAnalysis() {
@@ -1542,7 +1678,7 @@ function renderRingAnalysis() {
     : null;
   ringAnalysis = analyzeShortestRingIslands();
   if (focusedKey) {
-    ringAnalysis.focused = ringAnalysis.candidates.find(candidate =>
+    ringAnalysis.focused = ringAnalysis.allCandidates.find(candidate =>
       candidate.entry + ':' + candidate.exit === focusedKey) || ringAnalysis.first;
   }
   if (!ringAnalysis || ringAnalysis.unsupported) {
@@ -1556,6 +1692,7 @@ function renderRingAnalysis() {
     ui['ring-analysis-note'].textContent = '当前为决策骨架视图。请切换到同形商或镜像商后查看单步最短路环岛。';
     ui['ring-diagram'].innerHTML = '<div class="ring-empty"><strong>当前层使用加权宏边</strong><span>环岛分析需要逐步边；切换状态空间后可继续识别。</span></div>';
     ui['ring-candidate-list'].innerHTML = '<li class="ring-empty-row">决策骨架中的宏边已在“拓扑样本”与图例中显示。</li>';
+    renderRingLengthSpectrum(ringAnalysis);
     return;
   }
   const first = ringAnalysis.focused || ringAnalysis.first;
@@ -1565,6 +1702,7 @@ function renderRingAnalysis() {
   ui['ring-merge-count'].textContent = ringAnalysis.mergeCount.toLocaleString();
   ui['ring-square-count'].textContent = ringAnalysis.squareCount.toLocaleString();
   ui['ring-path-count'].textContent = ringAnalysis.pathCount.toLocaleString();
+  renderRingLengthSpectrum(ringAnalysis);
   if (!first) {
     ui['ring-proof-status'].textContent = '未找到环岛';
     ui['ring-analysis-note'].textContent = '当前最短路 DAG 中没有检测到两条等长的内部不交支路。';
@@ -1572,32 +1710,37 @@ function renderRingAnalysis() {
     ui['ring-candidate-list'].innerHTML = '<li class="ring-empty-row">没有可展示的分叉-汇合候选。</li>';
     return;
   }
-  const upperPath = [first.entry, first.upper, first.exit];
-  const lowerPath = [first.entry, first.lower, first.exit];
+  const upperPath = first.upperPath;
+  const lowerPath = first.lowerPath;
+  const branchLength = first.branchLength;
+  const isFirst = first.entry === ringAnalysis.first.entry && first.exit === ringAnalysis.first.exit;
+  ui['ring-diagram-title'].textContent = isFirst ? '第一个可交换环岛' : '当前选中环岛';
   ui['ring-proof-status'].textContent = 'RingIsland · 已验证结构';
   ui['ring-analysis-note'].textContent =
-    `在状态 #${first.entry} 分叉，并在 #${first.exit} 首次汇合。两条支路均为 2 步，内部状态 #${first.upper} 与 #${first.lower} 不同。`;
+    `在状态 #${first.entry} 分叉，并在 #${first.exit} 汇合。两条内部不交支路均为 ${branchLength} 步，闭合周长为 ${branchLength * 2} 步。`;
   ui['ring-diagram'].innerHTML = `
     <div class="ring-flow">
       <div class="ring-flow-column">${ringNodeMarkup(first.entry, 'entry')}</div>
       <div class="ring-branch-stack">
         <button class="ring-branch upper" data-ring-path="${upperPath.join(',')}">
-          <span><i></i>上支路</span><b>#${first.entry} → #${first.upper} → #${first.exit}</b>
-          <small>${actionText(first.upperEdge)}；${actionText(first.upperExitEdge)}</small><em>播放</em>
+          <span><i></i>上支路</span>
+          <b>${ringPathText(upperPath)}</b>
+          <small>${ringActionsText(upperPath, ringAnalysis.edgeByPair)}</small><em>播放</em>
         </button>
         <button class="ring-branch lower" data-ring-path="${lowerPath.join(',')}">
-          <span><i></i>下支路</span><b>#${first.entry} → #${first.lower} → #${first.exit}</b>
-          <small>${actionText(first.lowerEdge)}；${actionText(first.lowerExitEdge)}</small><em>播放</em>
+          <span><i></i>下支路</span>
+          <b>${ringPathText(lowerPath)}</b>
+          <small>${ringActionsText(lowerPath, ringAnalysis.edgeByPair)}</small><em>播放</em>
         </button>
       </div>
       <div class="ring-flow-column">${ringNodeMarkup(first.exit, 'exit')}</div>
     </div>
-    <div class="ring-equivalence"><code>upper.length = lower.length = 2</code><code>upper.actions ≠ lower.actions</code><code>interior ∩ = ∅</code></div>`;
+    <div class="ring-equivalence"><code>upper.length = lower.length = ${branchLength}</code><code>perimeter = ${branchLength * 2}</code><code>upper.actions ≠ lower.actions</code><code>interior ∩ = ∅</code></div>`;
   ui['ring-candidate-list'].innerHTML = ringAnalysis.candidates.map((candidate, index) => `
     <li><button data-ring-candidate="${index}">
       <b>${index === 0 ? '首个' : '#' + (index + 1)}</b>
       <span>#${candidate.entry} <i>→</i> #${candidate.exit}</span>
-      <small>支路 #${candidate.upper} / #${candidate.lower}</small>
+      <small>支路 ${candidate.branchLength} 步 · 周长 ${candidate.branchLength * 2} · #${candidate.upperPath[1]} / #${candidate.lowerPath[1]}</small>
       <em>定位</em>
     </button></li>`).join('');
 }
@@ -1624,6 +1767,45 @@ function animateRingPath(path, label) {
     if (token !== animationToken) return;
     isAnimating = false; suppressCompletion = false; syncRouteControls();
     ui['last-move'].textContent = `${label}已到达环岛出口 #${path.at(-1)}；两条支路长度相同`;
+  })();
+}
+
+function animateRingRoundTrip() {
+  const candidate = ringAnalysis?.focused || ringAnalysis?.first;
+  const upper = candidate?.fullUpperPath || ringAnalysis?.roundTripPaths?.upper;
+  const lower = candidate?.fullLowerPath || ringAnalysis?.roundTripPaths?.lower;
+  if (isAnimating || !upper?.length || !lower?.length) return;
+  const start = upper[0];
+  const closedWalk = [...upper, ...lower.slice(0, -1).reverse()];
+  cancelAnimation(false);
+  stopRandomWalk();
+  renderState(start, false, '已回到起点，准备播放两条不同最短路径的往返闭环');
+  routeStart = start; routeEnd = start; routePath = closedWalk.slice();
+  syncRouteControls(); updateGraphState();
+  const token = ++animationToken;
+  isAnimating = true;
+  suppressCompletion = true;
+  (async () => {
+    for (let index = 1; index < closedWalk.length; index += 1) {
+      if (token !== animationToken) return;
+      const from = closedWalk[index - 1], to = closedWalk[index];
+      const edge = outgoing[from]?.find(item => item.target === to);
+      if (!edge) {
+        isAnimating = false;
+        suppressCompletion = false;
+        ui['last-move'].textContent = `闭环路径缺少合法边 #${from} → #${to}`;
+        return;
+      }
+      const phase = index <= upper.length - 1 ? '去程' : '返程';
+      renderState(to, true, `${phase} ${index}/${closedWalk.length - 1}：${actionText(edge)}`, 'route', edge);
+      await wait(90);
+    }
+    if (token !== animationToken) return;
+    isAnimating = false; suppressCompletion = false; syncRouteControls();
+    ui['last-move'].textContent =
+      `往返闭环完成：起点 → 终点 → 起点，共 ${closedWalk.length - 1} 步；当前环岛两支路各 ${candidate.branchLength} 步`;
+    ui['ring-analysis-note'].textContent =
+      `已完成一条 ${closedWalk.length - 1} 步闭合游走。去程和返程使用两条不同的 ${shortestGoalDistance} 步最短路径；当前选中的局部环岛周长为 ${candidate.branchLength * 2} 步。`;
   })();
 }
 
@@ -1745,6 +1927,10 @@ function setGraphMode(mode, refit = true) {
   }
   if (previousMode === 'force' && mode !== 'force' && forceGraph) forceGraph.pauseAnimation();
   graphMode = mode;
+  const nextUrl = new URL(location.href);
+  if (mode === 'overview') nextUrl.searchParams.delete('view');
+  else nextUrl.searchParams.set('view', mode);
+  window.history.replaceState(null, '', nextUrl.toString());
   const projectionActive = caoMergeEnabled || goalSinkEnabled;
   if (ui['quotient-contract']) ui['quotient-contract'].disabled = mode !== 'overview' || !isMirrorSpace || projectionActive;
   if (ui['quotient-contract-toggle']) ui['quotient-contract-toggle'].disabled = mode !== 'overview' || !isMirrorSpace || projectionActive;
@@ -2027,6 +2213,17 @@ ui['ring-analysis-go-goal']?.addEventListener('click', () => {
   findGoalPath();
   if (routePath.length > 1) animateSelectedRoute();
 });
+ui['ring-analysis-roundtrip']?.addEventListener('click', animateRingRoundTrip);
+ui['ring-length-spectrum']?.addEventListener('click', event => {
+  const button = event.target.closest('[data-ring-length]');
+  if (!button || !ringAnalysis?.allCandidates) return;
+  const candidate = ringAnalysis.allCandidates.find(item => item.branchLength === Number(button.dataset.ringLength));
+  if (!candidate) return;
+  ringAnalysis.focused = candidate;
+  renderRingAnalysis();
+  ui['ring-analysis-note'].textContent =
+    `已定位支路长度为 ${candidate.branchLength} 步的环岛：入口 #${candidate.entry}，出口 #${candidate.exit}，闭合周长 ${candidate.branchLength * 2} 步。`;
+});
 ui['ring-diagram']?.addEventListener('click', event => {
   const branch = event.target.closest('[data-ring-path]');
   const node = event.target.closest('[data-ring-node]');
@@ -2044,7 +2241,7 @@ ui['ring-candidate-list']?.addEventListener('click', event => {
   if (!button || !ringAnalysis) return;
   const candidate = ringAnalysis.candidates[Number(button.dataset.ringCandidate)];
   if (!candidate) return;
-  const path = [candidate.entry, candidate.upper, candidate.exit];
+  const path = candidate.upperPath;
   ringAnalysis.focused = candidate;
   renderRingAnalysis();
   routeStart = candidate.entry; routeEnd = candidate.exit; routePath = path;

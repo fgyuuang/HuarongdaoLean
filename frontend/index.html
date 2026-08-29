@@ -116,19 +116,23 @@
         <div id="ring-island-view" class="ring-island-view" hidden>
           <header class="ring-analysis-heading">
             <div><small>SHORTEST-PATH DAG · FORMAL TOPOLOGY</small><h2>最短路环岛识别</h2><p>在满足 dist(s,u) + dist(u,t) = d 的最短路 DAG 中，寻找分叉后首次汇合的等长内部不交支路。</p></div>
-            <div class="ring-analysis-actions"><button id="ring-analysis-fit" title="恢复环岛视图">⌖</button><button id="ring-analysis-go-goal" title="播放一条完整最短路径">▶ 到终点</button></div>
+            <div class="ring-analysis-actions"><button id="ring-analysis-fit" title="恢复环岛视图">⌖</button><button id="ring-analysis-go-goal" title="播放一条完整最短路径">▶ 到终点</button><button id="ring-analysis-roundtrip" title="沿两条不同最短路径完成起点到终点再返回起点的闭合游走">↺ 往返闭环</button></div>
           </header>
           <div class="ring-metrics" aria-label="最短路拓扑统计">
             <div><span>最短长度</span><strong id="ring-dag-distance">--</strong><small>步</small></div>
             <div><span>最短路 DAG</span><strong id="ring-dag-count">--</strong><small>节点</small></div>
             <div><span>分叉点</span><strong id="ring-branch-count">--</strong><small>个</small></div>
             <div><span>汇合点</span><strong id="ring-merge-count">--</strong><small>个</small></div>
-            <div><span>环岛候选</span><strong id="ring-square-count">--</strong><small>个</small></div>
+            <div><span>四边形环岛</span><strong id="ring-square-count">--</strong><small>个</small></div>
             <div><span>最短路径</span><strong id="ring-path-count">--</strong><small>条</small></div>
           </div>
+          <section class="ring-spectrum-panel">
+            <header><div><small>RING LENGTH SPECTRUM</small><h3>环岛长度谱</h3></div><span id="ring-spectrum-summary">正在分析</span></header>
+            <div id="ring-length-spectrum" class="ring-length-spectrum"></div>
+          </section>
           <div class="ring-analysis-body">
             <section class="ring-diagram-panel">
-              <div class="ring-panel-heading"><div><small>FIRST MINIMAL ISLAND</small><h3>第一个可交换环岛</h3></div><span id="ring-proof-status">等待分析</span></div>
+              <div class="ring-panel-heading"><div><small>FIRST MINIMAL ISLAND</small><h3 id="ring-diagram-title">第一个可交换环岛</h3></div><span id="ring-proof-status">等待分析</span></div>
               <div id="ring-diagram" class="ring-diagram"></div>
               <div class="ring-legend"><span><i class="ring-entry-dot"></i>入口 / 分叉</span><span><i class="ring-upper-dot"></i>上支路</span><span><i class="ring-lower-dot"></i>下支路</span><span><i class="ring-exit-dot"></i>出口 / 汇合</span></div>
             </section>

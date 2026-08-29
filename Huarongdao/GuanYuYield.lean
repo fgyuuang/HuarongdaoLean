@@ -1,6 +1,8 @@
 import Huarongdao.CaoGuanGeometry
 import Huarongdao.Bottleneck
 import Huarongdao.ClassicSolution
+import Huarongdao.Quotient
+import Huarongdao.StateSpaceSymmetry
 
 namespace Huarongdao
 namespace GuanYuYieldTheory
@@ -66,6 +68,111 @@ theorem GuanYuYield.blockage_decreases
     (yield : GuanYuYield source action target) :
     guanYuCaoSweepBlockage target < guanYuCaoSweepBlockage source :=
   yield.2.2
+
+private theorem occupiedCells_relabel_fixed
+    (relabeling : PieceRelabeling) (state : State)
+    {piece : Piece} (fixed : relabeling.inverse piece = piece) :
+    occupiedCells (relabelState relabeling state) piece =
+      occupiedCells state piece := by
+  rw [occupiedCells_relabel, fixed]
+
+private theorem caoDownSweepTarget_relabel
+    (relabeling : PieceRelabeling) (state : State) :
+    caoDownSweepTarget (relabelState relabeling state) =
+      relabelState relabeling (caoDownSweepTarget state) := by
+  unfold caoDownSweepTarget
+  have commute :=
+    moveUnchecked_relabel relabeling state .caoCao .down
+  rw [relabeling.fixedCao] at commute
+  rw [commute]
+  cases h : moveUnchecked state .caoCao .down with
+  | none =>
+      simp
+  | some target =>
+      simp
+
+private theorem caoDownSweepCells_relabel
+    (relabeling : PieceRelabeling) (state : State) :
+    caoDownSweepCells (relabelState relabeling state) =
+      caoDownSweepCells state := by
+  unfold caoDownSweepCells
+  rw [caoDownSweepTarget_relabel]
+  simp only [SweepCells]
+  rw [occupiedCells_relabel_fixed relabeling
+      (caoDownSweepTarget state) relabeling.symm.fixedCao]
+  rw [occupiedCells_relabel_fixed relabeling
+      state relabeling.symm.fixedCao]
+
+theorem guanYuCaoSweepBlockage_relabel
+    (relabeling : PieceRelabeling) (state : State) :
+    guanYuCaoSweepBlockage (relabelState relabeling state) =
+      guanYuCaoSweepBlockage state := by
+  unfold guanYuCaoSweepBlockage
+  rw [caoDownSweepCells_relabel]
+  rw [occupiedCells_relabel_fixed relabeling state
+      relabeling.symm.fixedGuan]
+
+private theorem relabel_forward_guanYu_iff
+    (relabeling : PieceRelabeling) (piece : Piece) :
+    relabeling.forward piece = .guanYu ↔ piece = .guanYu := by
+  constructor
+  · intro equal
+    apply relabeling.forward_injective
+    rw [equal, relabeling.fixedGuan]
+  · intro equal
+    rw [equal, relabeling.fixedGuan]
+
+theorem GuanYuYield.relabel
+    {source target : State} {action : Action}
+    (relabeling : PieceRelabeling)
+    (yield : GuanYuYield source action target) :
+    GuanYuYield
+      (relabelState relabeling source)
+      (relabelAction relabeling action)
+      (relabelState relabeling target) := by
+  refine ⟨?_, ?_, ?_⟩
+  · exact tryMove_relabel_some relabeling yield.1
+  · exact (relabel_forward_guanYu_iff relabeling action.piece).mpr yield.2.1
+  · rw [guanYuCaoSweepBlockage_relabel,
+      guanYuCaoSweepBlockage_relabel]
+    exact yield.2.2
+
+private theorem relabel_inverse_eq
+    (relabeling : PieceRelabeling) {state : State}
+    (validState : ValidState state) :
+    relabelState relabeling.symm (relabelState relabeling state) =
+      state := by
+  apply State.eq_of_valid_pos_eq
+    (valid_relabel relabeling.symm (valid_relabel relabeling validState))
+    validState
+  exact relabel_inverse relabeling state
+
+private theorem relabelAction_inverse_eq
+    (relabeling : PieceRelabeling) (action : Action) :
+    relabelAction relabeling.symm (relabelAction relabeling action) =
+      action := by
+  cases action with
+  | mk piece direction =>
+      simp only [relabelAction, PieceRelabeling.symm]
+      rw [relabeling.leftInv]
+
+theorem GuanYuYield.relabel_iff
+    {source target : State} {action : Action}
+    (relabeling : PieceRelabeling)
+    (sourceValid : ValidState source)
+    (targetValid : ValidState target) :
+    GuanYuYield source action target ↔
+      GuanYuYield
+        (relabelState relabeling source)
+        (relabelAction relabeling action)
+        (relabelState relabeling target) := by
+  constructor
+  · exact GuanYuYield.relabel relabeling
+  · intro relabeled
+    have restored := GuanYuYield.relabel relabeling.symm relabeled
+    simpa [relabel_inverse_eq relabeling sourceValid,
+      relabel_inverse_eq relabeling targetValid,
+      relabelAction_inverse_eq] using restored
 
 /-- The already proved state gate is the weak "Guan Yu-related" statement. -/
 theorem classic_solution_visits_guanYu_gate :

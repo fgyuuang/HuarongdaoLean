@@ -1,6 +1,7 @@
 import Huarongdao.ClassicFullSpaceSoundness
-import Huarongdao.ClassicFullSpaceCertificate
-import Huarongdao.ClassicComponentSymmetryCertificate
+import Huarongdao.ClassicFullSpaceCachedCertificate
+import Huarongdao.ClassicFullSpaceUnique
+import Huarongdao.ClassicComponentSymmetry
 import Huarongdao.ClassicFullSpaceCompleteness
 
 set_option maxRecDepth 100000
@@ -18,10 +19,6 @@ arrays are only a finite presentation of that quotient.  A
 `ComponentRun.Lawful` proof is the bridge between these two levels.
 -/
 
-/-- The concrete DFS run used by the full-space analysis. -/
-def fullSpaceRun : ComponentRun :=
-  componentSummariesOf allShapeStates
-
 /-- Every quotient state has a representative in the executable full-space
 array.  This is the semantic coverage half of the eventual `Lawful` proof. -/
 theorem fullSpace_semantic_complete :
@@ -30,20 +27,20 @@ theorem fullSpace_semantic_complete :
         ShapeState.ofState
             ⟨allShapeStates[index],
               checkAllValid_sound
-                (by simpa [analyze, checkAllValid] using analysis_allValid)
+                (by simpa [analyze, checkAllValid] using cached_allValid)
                 index.2⟩ =
           node :=
     enumerationComplete_quotient_cover
     (fun index =>
       checkAllValid_sound
-        (by simpa [analyze, checkAllValid] using analysis_allValid)
+        (by simpa [analyze, checkAllValid] using cached_allValid)
         index.2)
     enumerationComplete
 
 private theorem fullSpace_index_valid (index : Fin allShapeStates.size) :
     ValidState allShapeStates[index] :=
   checkAllValid_sound
-    (by simpa [analyze, checkAllValid] using analysis_allValid)
+    (by simpa [analyze, checkAllValid] using cached_allValid)
     index.2
 
 /-- The semantic equality test on two generated representatives is strong
@@ -92,14 +89,15 @@ This is a computation theorem about the executable run.  It is deliberately
 separate from the semantic quotient theorem below.
 -/
 theorem fullSpaceRun_roots_size : fullSpaceRun.roots.size = 898 := by
-  set_option maxHeartbeats 0 in
-  native_decide
+  exact cached_fullSpaceRun_roots_size
 
 /-- The number of DFS roots agrees with the number of emitted summaries. -/
 theorem fullSpaceRun_roots_eq_summaries :
     fullSpaceRun.roots.size = fullSpaceRun.summaries.size := by
-  set_option maxHeartbeats 0 in
-  native_decide
+  calc
+    fullSpaceRun.roots.size = 898 := fullSpaceRun_roots_size
+    _ = analyze.summaries.size := cached_componentCount.symm
+    _ = fullSpaceRun.summaries.size := fullSpaceRun_summaries.symm
 
 /-- The concrete finite run has the certified 898-component count. -/
 theorem fullSpaceRun_component_count :
@@ -108,7 +106,7 @@ theorem fullSpaceRun_component_count :
 /-- The concrete finite run covers the certified number of representatives. -/
 theorem fullSpaceRun_state_count :
     allShapeStates.size = 65880 := by
-  simpa [analyze, fullSpaceRun] using analysis_stateCount
+  simpa [analyze, fullSpaceRun] using cached_stateCount
 
 private theorem fullSpace_array_member
     (index : Fin allShapeStates.size) :
@@ -160,7 +158,7 @@ theorem fullSpace_semanticCertificate_of_injective
       ComponentRun.Lawful.checkAllValid_sound
         (by
           simpa [analyze, ComponentRun.Lawful.checkAllValid] using
-            analysis_allValid)
+            cached_allValid)
         index.2
   refine {
     complete := ?_
@@ -171,6 +169,19 @@ theorem fullSpace_semanticCertificate_of_injective
   · intro validAt' left right sameState
     exact fullSpace_shape_exact_of_injective
       stateInjective validAt' sameState
+
+/-- The canonical representatives are injective, extracted from the
+already-certified key scan rather than recomputed by pairwise comparison. -/
+theorem fullSpace_stateInjective :
+    Function.Injective
+      (fun index : Fin allShapeStates.size => allShapeStates[index]) :=
+  allShapeStates_state_injective
+
+/-- The semantic half of the full-space DFS certificate is now unconditional. -/
+theorem fullSpace_semanticCertificate :
+    ComponentRun.Lawful.SemanticCertificate
+      allShapeStates fullSpaceRun :=
+  fullSpace_semanticCertificate_of_injective fullSpace_stateInjective
 
 /-- Once the finite replay checker is supplied, the semantic certificate
 above turns the concrete full-space run into a proof-facing `Lawful` run.
@@ -190,7 +201,7 @@ executable size. -/
 theorem fullSpaceRun_classic_component_size :
     classicComponentSize = 25955 := by
   simpa [classicComponentSize, classicComponentIndex?, componentSummaries] using
-    analysis_classicSize
+    cached_classicSize
 
 /-!
 ### Conditional semantic theorem
@@ -319,8 +330,7 @@ index fiber.  No statement about the semantic quotient is made yet.
 
 theorem classicComponentId_lt_fullSpaceRun_roots :
     classicComponentId < fullSpaceRun.roots.size := by
-  set_option maxHeartbeats 0 in
-  native_decide
+  exact cached_classicComponentId_lt_fullSpaceRun_roots
 
 def fullSpaceClassicComponent : Fin fullSpaceRun.roots.size :=
   ⟨classicComponentId, classicComponentId_lt_fullSpaceRun_roots⟩
@@ -332,8 +342,7 @@ theorem fullSpaceClassicIndexFiber_card :
               index.1 fullSpaceRun.roots.size =
             classicComponentId } =
       25955 := by
-  set_option maxHeartbeats 0 in
-  native_decide
+  exact cached_fullSpaceClassicIndexFiber_card
 
 def classicContinuousClassStates : Set ShapeState :=
   {state | continuousClassOf state = continuousClassOf classicShapeState}

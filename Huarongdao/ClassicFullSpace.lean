@@ -146,13 +146,16 @@ theorem enumerationComplete_quotient_cover
   exact sameShape_trans arraySame (sameShape_symm sameShape)
 
 /-- Executable uniqueness check for equal-shape keys. -/
-def uniqueKeys (states : Array State) : Bool := Id.run do
-  let mut known : Std.HashSet String := {}
-  for state in states do
-    if known.contains state.key then
-      return false
-    known := known.insert state.key
-  return true
+def uniqueKeysList : Std.HashSet String → List State → Bool
+  | _, [] => true
+  | known, state :: states =>
+      if known.contains state.key then
+        false
+      else
+        uniqueKeysList (known.insert state.key) states
+
+def uniqueKeys (states : Array State) : Bool :=
+  uniqueKeysList {} states.toList
 
 /-- Collision-free base-20 code for valid classic equal-shape states. -/
 def placementCode (state : State) : Nat :=
@@ -298,6 +301,12 @@ def componentSummariesOf
     parent := parent
     discovery := discovery
   }
+
+/-- The deterministic DFS run used by the full-space semantic certificates.
+Keeping this definition in the data module lets independent certificate
+modules reuse the same computation without importing cardinality theorems. -/
+def fullSpaceRun : ComponentRun :=
+  componentSummariesOf allShapeStates
 
 def componentSummaries : Array ComponentSummary :=
   (componentSummariesOf allShapeStates).summaries

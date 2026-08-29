@@ -17,6 +17,9 @@
     "check:local-topology": "node scripts/check-local-topology.mjs",
     "build:mirror": "npm run export:mirror && python scripts/build_mirror_quotient.py",
     "build:corridor": "npm run build:mirror && lake exe export-graph frontend/graph.corridor.json corridor && python scripts/build_corridor_compression.py",
+    "cache:status": "node scripts/state-space-cache.mjs status",
+    "cache:write": "node scripts/state-space-cache.mjs write",
+    "cache:refresh": "node scripts/state-space-cache.mjs refresh",
     "check": "lake build && node --check frontend/app.js && node --check frontend/full-space.js && node --check frontend/local-topology.js && node --check frontend/local-topology-view.js && node --check frontend/laboratory.js && node --check frontend/structural-layout-worker.js && node --check frontend/state-space-visualization.js && node --check scripts/serve.mjs && npm run check:generic && npm run check:layout && npm run check:state-spaces && npm run check:local-topology && npm run check:certificates"
   },
   "dependencies": {
