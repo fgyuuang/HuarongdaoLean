@@ -31,10 +31,10 @@ let sourceExpanded = false;
 const majorTheoremIds = [
   'classic116Play_minimal',
   'classic_solution_uses_guanYu_yield',
-  'continuousClass_card_eq_898',
+  'continuousClass_card_eq_898_complete',
+  'verticalReflection_largeComponentSizes',
   'classic_shortest_path_not_unique',
-  'concreteWalk_projectsToMirror',
-  'classic_solutionGate_guanYuClearsCaoSweep'
+  'concreteWalk_projectsToMirror'
 ];
 
 function setMode(mode) {
@@ -112,14 +112,16 @@ const theoremGraphPositions = {
   tryMove_reverse: { x: 32, y: 202 },
   shapePresentation_successorsComplete: { x: 268, y: 202 },
   checkClosedGraph_sound: { x: 504, y: 202 },
-  continuousClass_card_eq_898: { x: 740, y: 202 },
+  fullSpaceRun_lawful: { x: 740, y: 202 },
   classic_solutionGate_guanYuClearsCaoSweep: { x: 32, y: 362 },
   concreteWalk_projectsToMirror: { x: 268, y: 362 },
   shortest_of_verified_path_and_lower_bound: { x: 504, y: 362 },
-  corridorWalk_liftToConcreteWithCost: { x: 740, y: 362 },
+  continuousClass_card_eq_898_complete: { x: 740, y: 362 },
   classic_solution_uses_guanYu_yield: { x: 268, y: 522 },
-  classic_shortest_path_not_unique: { x: 740, y: 522 },
-  classic116Play_minimal: { x: 504, y: 522 }
+  classic116Play_minimal: { x: 504, y: 522 },
+  verticalReflection_largeComponentSizes: { x: 740, y: 522 },
+  corridorWalk_liftToConcreteWithCost: { x: 32, y: 522 },
+  classic_shortest_path_not_unique: { x: 504, y: 642 }
 };
 
 function theoremGraphBoundaryPoint(source, target, fromSource) {
@@ -190,7 +192,7 @@ function theoremDependencyGraph() {
           <div class="theorem-graph-lane lane-foundation">基础语义与几何</div>
           <div class="theorem-graph-lane lane-bridge">可达性、商与证书</div>
           <div class="theorem-graph-lane lane-result">大结论</div>
-          <svg class="theorem-graph-svg" viewBox="0 0 1080 680" role="img" aria-label="${theoremRecords.length} 条 Lean 定理的有向依赖图">
+          <svg class="theorem-graph-svg" viewBox="0 0 1080 800" role="img" aria-label="${theoremRecords.length} 条 Lean 定理的有向依赖图">
             <defs><marker id="theorem-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs>
             ${theoremDependencyEdges.map(edge => theoremGraphPath(edge, recordsById)).join('')}
           </svg>
@@ -251,8 +253,8 @@ function overviewView() {
     <section class="formal-summary-banner">
       <div class="summary-seal">∴</div>
       <div><span class="section-kicker">CURRENT FORMALIZATION RESULT</span>
-        <h2>116 步最短性已闭合，研究没有停在终点</h2>
-        <p><code>classic116Play_minimal</code> 把一条 116 步通关路径和完整商图下界接在一起。随后，项目继续研究同形商、镜像商、898 个 DFS 分量、关羽让路和最短路环岛；这些结论的证据类型并不相同，页面会逐项标明。</p>
+        <h2>全空间证明已经闭合</h2>
+        <p><code>continuousClass_card_eq_898_complete</code> 证明全空间恰有 898 个连续等价类。经典初态与上下镜像分别位于两个 25,955 状态分量中；完整导出显示它们并列最大，但这里说的是连续分量，不是路径长度。</p>
       </div>
       <button class="inline-action" data-formal-view="theorems">查看大定理 <span>→</span></button>
     </section>
@@ -272,7 +274,8 @@ function overviewView() {
         <header class="formal-section-heading"><div><span class="section-kicker">EVIDENCE BOUNDARY</span><h2>当前结果如何理解</h2></div></header>
         <div class="boundary-row"><i class="boundary-icon kernel">K</i><div><b>内核定理</b><span>定义、归纳证明、等价与最短性定理由 Lean kernel 检查。</span></div></div>
         <div class="boundary-row"><i class="boundary-icon checked">C</i><div><b>有限证书</b><span><code>native_decide</code> / checker 验证可计算事实，再由 soundness 定理解释。</span></div></div>
-        <div class="boundary-row"><i class="boundary-icon conditional">?</i><div><b>条件接口</b><span><code>continuousClass_card_eq_898</code> 保留 <code>Lawful</code> 前提，未把待聚合的最终证书隐藏掉。</span></div></div>
+        <div class="boundary-row"><i class="boundary-icon checked">C</i><div><b>898 已闭合</b><span><code>fullSpaceRun_lawful</code> 与根计数证书共同推出无条件基数定理。</span></div></div>
+        <div class="boundary-row"><i class="boundary-icon conditional">?</i><div><b>最大性的边界</b><span>全空间导出中只有分量 #15 和 #0 达到 25,955。现有 theorem statement 尚未单独写出“其余分量均不超过该值”的全称上界。</span></div></div>
         <div class="boundary-row"><i class="boundary-icon visual">V</i><div><b>可视化</b><span>Three.js 坐标、动画和布局帮助理解结构，但不是证明数据。</span></div></div>
       </section>
     </section>`;
@@ -358,7 +361,8 @@ function evidenceBoundarySection() {
     <div class="compact-evidence-grid">
       <div><i class="boundary-icon kernel">K</i><b>内核定理</b><p>定义、归纳证明、等价和最短性由 Lean kernel 检查。</p></div>
       <div><i class="boundary-icon checked">C</i><b>有限证书</b><p>checker 或 <code>native_decide</code> 先验证数据，再由 soundness 定理解释。</p></div>
-      <div><i class="boundary-icon conditional">?</i><b>条件接口</b><p><code>continuousClass_card_eq_898</code> 仍保留 <code>Lawful</code> 前提，898 尚未作为无条件定理编译闭合。</p></div>
+      <div><i class="boundary-icon checked">C</i><b>全空间已闭合</b><p><code>continuousClass_card_eq_898_complete</code> 已经是无条件基数定理。</p></div>
+      <div><i class="boundary-icon conditional">?</i><b>最大性说明</b><p>导出数据确认两个 25,955 状态分量并列最大；全称上界尚未单独导出成 theorem。</p></div>
     </div>
   </section>`;
 }
@@ -436,7 +440,7 @@ VerifiedPath actions
       <div><span><code>tryMove</code> / <code>Step</code></span><span>合法动作与保持合法性</span><strong class="state-done">已闭合</strong></div>
       <div><span><code>Reachable</code> / <code>Reversible</code></span><span>路径、逆元、连通分量</span><strong class="state-done">已闭合</strong></div>
       <div><span><code>classic116Play_minimal</code></span><span>完整图下界 + 116 步见证</span><strong class="state-done">大定理已闭合</strong></div>
-      <div><span><code>Fintype.card ContinuousClass = 898</code></span><span>有限 DFS 分割到语义商的基数桥</span><strong class="state-open">Lawful 前提仍显式</strong></div>
+      <div><span><code>Fintype.card ContinuousClass = 898</code></span><span>有限 DFS 分割到语义商的基数桥</span><strong class="state-done">无条件大定理已闭合</strong></div>
       <div><span>Three.js / layout.json</span><span>坐标、动画、交互</span><strong class="state-visual">展示层</strong></div>
     </div></section>`;
 }
@@ -452,9 +456,9 @@ function dashboardView() {
       <div class="summary-seal">∴</div>
       <div><span class="section-kicker">PROJECT SUMMARY</span>
         <h2>当前形式化结果</h2>
-        <p><code>classic116Play_minimal</code> 已闭合经典华容道 116 步的全局最短性。项目还证明了关羽让路的必然性，并继续研究商空间、全空间分量和最短解之间的结构。898 个连续分量目前是带 <code>Lawful</code> 前提的条件结论。</p>
+        <p><code>continuousClass_card_eq_898_complete</code> 已证明全空间恰有 898 个连续等价类。经典初态所在的 #15 分量与上下镜像所在的 #0 分量各含 25,955 个状态，二者互不连通，并由上下反射交换。全空间导出显示它们是并列最大的两个连续分量。</p>
       </div>
-      <span class="summary-status">主定理已闭合 · 898 保留前提</span>
+      <span class="summary-status">898 已闭合 · 25,955 × 2 并列最大</span>
     </section>
     ${modelFormalizationSection()}
     ${researchContinuationSection()}

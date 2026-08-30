@@ -1,9 +1,9 @@
 export const formalizationStats = [
   { value: '116', label: '经典最短步数', note: '有限图证书已检查', accent: 'red' },
-  { value: '25,955', label: '经典同形商状态', note: '经典初态所在分量', accent: 'teal' },
+  { value: '25,955 × 2', label: '并列最大连续分量', note: '经典初态与上下镜像', accent: 'teal' },
   { value: '83,896', label: 'Lean 导出的有向边', note: '逐条通过 QStep 检查', accent: 'gold' },
   { value: '65,880', label: '全形状候选布局', note: '4,392 × C(6,4)', accent: 'ink' },
-  { value: '898', label: 'DFS 连续分量', note: '语义桥仍需 Lawful 实例', accent: 'amber' }
+  { value: '898', label: '连续等价类', note: '无条件基数定理已闭合', accent: 'amber' }
 ];
 
 export const researchContinuations = [
@@ -15,7 +15,7 @@ export const researchContinuations = [
   {
     title: '全空间与连续等价类',
     lean: '65,880 → 898 → ContinuousClass',
-    detail: '有限生成器覆盖 65,880 个合法代表，DFS 得到 898 个连通分量。语义基数结论仍由 Lawful 桥接。'
+    detail: '有限生成器覆盖 65,880 个合法代表。DFS 重放、状态唯一性和根计数证书合在一起，得到 898 个连续等价类的无条件定理。'
   },
   {
     title: '关羽让路',
@@ -133,12 +133,12 @@ export const formalStages = [
     index: '08',
     title: '全形状空间',
     lean: '65,880 → 898 → ContinuousClass',
-    file: 'Huarongdao/ClassicContinuousClassCard.lean',
-    symbol: 'continuousClass_card_eq_898',
+    file: 'Huarongdao/ClassicContinuousClassCardFinal.lean',
+    symbol: 'continuousClass_card_eq_898_complete',
     color: 'teal',
-    description: '枚举所有合法同形布局，再用 DFS 分割得到 898 个分量。语义桥已经写好，但最终仍需要一个 `Lawful` 实例。',
-    formula: 'lawful + roots.size = 898 ⇒ Fintype.card ContinuousClass = 898',
-    outputs: ['全空间枚举', 'DFS 分量证书', '连续等价类基数']
+    description: '枚举所有合法同形布局，再重放 DFS 分割。有限检查、生成器完备性、状态索引唯一性和 898 根证书共同构造出 `fullSpaceRun.Lawful`。',
+    formula: 'fullSpaceRun_lawful ⇒ Fintype.card ContinuousClass = 898',
+    outputs: ['65,880 个合法代表', '无条件 Lawful 证明', '898 个连续等价类']
   }
 ];
 
@@ -357,20 +357,61 @@ export const theoremRecords = [
     fallback: `theorem fullSpace_semantic_complete :\n    ∀ node : ShapeState,\n      ∃ index : Fin allShapeStates.size,\n        ShapeState.ofState ... = node :=\n  enumerationComplete_quotient_cover ... enumerationComplete`
   },
   {
-    id: 'continuousClass_card_eq_898',
-    title: '连续等价类基数 = 898（条件语义定理）',
+    id: 'fullSpaceRun_lawful',
+    title: '全空间 DFS 运行满足语义规范',
     category: '全空间',
-    evidence: 'conditional',
+    evidence: 'checked',
+    file: 'Huarongdao/ClassicContinuousClassCardFinal.lean',
+    anchor: 'theorem fullSpaceRun_lawful',
+    tags: ['Lawful', '65,880', 'finite replay'],
+    statement: 'fullSpaceRun.Lawful allShapeStates',
+    plain: '这条定理把可执行 DFS 与数学上的全部同形状态接了起来。有限重放检查确认父边、标签闭包和状态合法性；生成器完备性与状态索引唯一性负责语义覆盖。',
+    chain: ['fullSpaceRun_checkFinite_checked', 'enumerationComplete', 'allShapeStates_state_injective', 'fullSpaceRun_lawful'],
+    related: ['continuousClass_card_eq_898_complete', 'fullSpace_semantic_complete'],
+    sourceWindow: 16,
+    fallback: `theorem fullSpaceRun_lawful :
+    fullSpaceRun.Lawful allShapeStates :=
+  fullSpaceRun_lawful_core`
+  },
+  {
+    id: 'continuousClass_card_eq_898_complete',
+    title: '全空间恰有 898 个连续等价类',
+    category: '全空间大定理',
+    evidence: 'checked',
     featured: true,
-    file: 'Huarongdao/ClassicContinuousClassCard.lean',
-    anchor: 'theorem continuousClass_card_eq_898',
-    tags: ['898', 'cardinality', 'open boundary'],
-    statement: 'Lawful fullSpaceRun → Fintype.card ContinuousClass = 898',
-    plain: '有限生成器已经给出 65,880 个合法代表和 898 个 DFS 根。只要完整运行满足 `Lawful`，根集合就与语义连续等价类等势，从而得到 898。当前定理保留这个前提；本轮没有把重型全空间检查重新编译成默认构建的一部分。',
-    chain: ['fullSpace_semanticCertificate', 'fullSpaceRun_lawful_of_checked', 'continuousClass_card_eq_898'],
-    related: ['fullSpaceRun_roots_size', 'continuousClass_card_eq_898_of_certificate'],
+    file: 'Huarongdao/ClassicContinuousClassCardFinal.lean',
+    anchor: 'theorem continuousClass_card_eq_898_complete',
+    tags: ['898', 'cardinality', 'unconditional'],
+    statement: 'Fintype.card ContinuousClass = 898',
+    plain: '65,880 个合法同形状态被完整分割成 898 个连续等价类。这里没有额外的 `Lawful` 假设：`fullSpaceRun_lawful` 已由有限重放、枚举完备性、索引唯一性和根计数证书闭合。',
+    chain: ['fullSpaceRun_checkFinite_checked', 'fullSpaceRun_roots_size_checked', 'fullSpaceRun_lawful', 'continuousClass_card_eq_898_complete'],
+    related: ['fullSpace_semantic_complete', 'verticalReflection_largeComponentSizes'],
     sourceWindow: 18,
-    fallback: `theorem continuousClass_card_eq_898\n    (lawful : fullSpaceRun.Lawful allShapeStates) :\n    @Fintype.card ContinuousClass\n      (VerifiedShapePartition.continuousClassFintype\n        lawful.toVerifiedShapePartition) = 898 :=\n  ComponentRun.Lawful.continuousClass_card_eq_898_of_lawful\n    lawful fullSpaceRun_roots_size`
+    fallback: `theorem continuousClass_card_eq_898_complete :
+    @Fintype.card ContinuousClass
+      (ComponentRun.Lawful.continuousClassFintypeOfLawful
+        fullSpaceRun_lawful) = 898 :=
+  continuousClass_card_eq_898_complete_core`
+  },
+  {
+    id: 'verticalReflection_largeComponentSizes',
+    title: '经典初态与上下镜像各有 25,955 个状态',
+    category: '全空间大定理',
+    evidence: 'checked',
+    featured: true,
+    file: 'Huarongdao/ClassicComponentSymmetryCertificate.lean',
+    anchor: 'theorem verticalReflection_largeComponentSizes',
+    tags: ['25,955 × 2', 'vertical reflection', 'components'],
+    statement: 'componentSize classicComponentId = 25955 ∧ componentSize verticalClassicComponentId = 25955',
+    plain: '经典初态位于分量 #15，上下镜像位于分量 #0。Lean 已证明两个分量各含 25,955 个状态；另两条证书定理证明上下反射交换它们，而且二者不能通过合法滑动互达。完整全空间导出中只有这两个分量达到 25,955，因此它们并列最大。严格说，这是最大连续分量，不是“最大路径”；当前公开 theorem statement 也还没有单独导出对其余 896 个分量的全称上界。',
+    chain: ['componentSymmetries_checked', 'componentSymmetry_facts', 'verticalReflection_largeComponentSizes'],
+    related: ['verticalReflection_exchanges_largeComponents', 'not_continuousEquivalent_classic_verticalMirror'],
+    sourceWindow: 24,
+    fallback: `theorem verticalReflection_largeComponentSizes :
+    componentSize classicComponentId = 25955 ∧
+      componentSize verticalClassicComponentId = 25955 :=
+  ⟨certifiedComponentSymmetryFacts.classicSize,
+    certifiedComponentSymmetryFacts.verticalClassicSize⟩`
   },
   {
     id: 'shapePresentation_successorsComplete',
@@ -404,7 +445,9 @@ export const theoremDependencyEdges = [
   { from: 'classic_solutionGate_guanYuClearsCaoSweep', to: 'classic_solution_uses_guanYu_yield', label: '门区到动作' },
   { from: 'classic_solution_uses_guanYu_yield', to: 'classic116Play_minimal', label: '机制解释' },
   { from: 'classic116Play_minimal', to: 'classic_shortest_path_not_unique', label: '同长分叉' },
-  { from: 'fullSpace_semantic_complete', to: 'continuousClass_card_eq_898', label: '完备性' }
+  { from: 'fullSpace_semantic_complete', to: 'fullSpaceRun_lawful', label: '语义覆盖' },
+  { from: 'fullSpaceRun_lawful', to: 'continuousClass_card_eq_898_complete', label: 'Lawful + 根计数' },
+  { from: 'fullSpace_semantic_complete', to: 'verticalReflection_largeComponentSizes', label: '全空间索引' }
 ];
 
 export const kernelComponents = [
@@ -439,7 +482,8 @@ export const sourceFiles = [
   { path: 'Huarongdao/GuanYuYield.lean', layer: '离散几何', summary: '关羽让路谓词、阻塞量和重标号不变性' },
   { path: 'Huarongdao/GuanYuYieldFiniteCertificate.lean', layer: '离散几何', summary: '避开让路事件的有限证书与强版必经定理' },
   { path: 'Huarongdao/CaoGuanGeometry.lean', layer: '离散几何', summary: '目标态的曹操/关羽位置关系' },
-  { path: 'Huarongdao/ClassicContinuousClassCard.lean', layer: '全空间', summary: '65,880、898 与 ContinuousClass 基数桥' },
+  { path: 'Huarongdao/ClassicContinuousClassCardFinal.lean', layer: '全空间大定理', summary: '无条件 Lawful 与 ContinuousClass 基数 898' },
+  { path: 'Huarongdao/ClassicComponentSymmetryCertificate.lean', layer: '全空间对称', summary: '两个 25,955 状态分量、镜像交换与不可互达' },
   { path: 'Huarongdao/ShortestPathTopology.lean', layer: '最短路拓扑', summary: '两条 116 步解、环岛和路径分叉结构' }
 ];
 

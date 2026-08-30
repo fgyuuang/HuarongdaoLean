@@ -1,5 +1,6 @@
 import Huarongdao.ClassicFullSpace
 import Huarongdao.StateSpaceBfs
+import Huarongdao.ClassicCanonical
 import Mathlib.Data.List.Sublists
 
 namespace Huarongdao
@@ -196,6 +197,20 @@ def shapeCandidateIndex (states : Array State) : Std.HashMap String Nat :=
       index := index.insert (states.getD stateId classic).key stateId
     return index
 
+/-!
+`checkLabelClosed` visits every stored state.  The candidate index is
+independent of the source state, so rebuilding `representationGraph` inside
+each visit is needlessly quadratic in the number of representatives.  Keep
+the index as an explicit argument in the executable worker and construct it
+once in the public scan below.
+-/
+def representationGraphWithIndex
+    (states : Array State) (index : Std.HashMap String Nat) : Graph where
+  states := states
+  edges := #[]
+  distance := #[]
+  index := index
+
 def representationGraph (states : Array State) : Graph where
   states := states
   edges := #[]
@@ -205,7 +220,7 @@ def representationGraph (states : Array State) : Graph where
 /-- Independently replay one claimed DFS parent edge. -/
 def checkParentEdge (states : Array State) (parent child : Nat) : Bool :=
   (legalMoves (states.getD parent classic)).any fun move =>
-    decide (SameShape move.2.2 (states.getD child classic))
+    decide (canonicalState move.2.2 = states.getD child classic)
 
 theorem checkParentEdge_sound {states : Array State} {parent child : Nat}
     (checked : checkParentEdge states parent child = true) :
@@ -214,9 +229,15 @@ theorem checkParentEdge_sound {states : Array State} {parent child : Nat}
   rw [List.any_eq_true] at checked
   rcases checked with ⟨move, moveMember, represented⟩
   rcases move with ⟨piece, direction, target⟩
-  exact
-    ⟨piece, direction, target, legalMoves_sound moveMember,
-      of_decide_eq_true represented⟩
+  have executed :
+      tryMove (states.getD parent classic) piece direction = some target :=
+    legalMoves_sound moveMember
+  refine ⟨piece, direction, target, executed, ?_⟩
+  have canonicalEq :
+      canonicalState target = states.getD child classic :=
+    of_decide_eq_true represented
+  rw [← canonicalEq]
+  exact canonicalState_sameShape target
 
 theorem qStep_to_shape_step {source target : State}
     (sourceValid : ValidState source) (targetValid : ValidState target)
@@ -323,22 +344,30 @@ theorem checkParents_sound
 
 /-- Check every semantic successor of one stored representative and require
 the verified target representative to retain the DFS component label. -/
-def checkLabelClosedAt (states : Array State) (run : ComponentRun)
-    (source : Nat) : Bool :=
-  let graph := representationGraph states
+def checkLabelClosedAtWithIndex
+    (states : Array State) (index : Std.HashMap String Nat)
+    (run : ComponentRun) (source : Nat) : Bool :=
   (legalMoves (states.getD source classic)).all fun move =>
-    match graph.findRepresentation move.2.2 with
+    match canonicalRepresentation states index move.2.2 with
     | none => false
-    | some (target, _) =>
+    | some target =>
         run.componentOf.getD target run.roots.size ==
           run.componentOf.getD source run.roots.size
 
-def checkLabelClosed (states : Array State) (run : ComponentRun) : Bool :=
-  (List.range states.size).all (checkLabelClosedAt states run)
+/-! Compatibility wrapper for callers which only need a single-source check. -/
+def checkLabelClosedAt (states : Array State) (run : ComponentRun)
+    (source : Nat) : Bool :=
+  checkLabelClosedAtWithIndex states (shapeCandidateIndex states) run source
 
-theorem checkLabelClosedAt_sound
-    {states : Array State} {run : ComponentRun} {source : Nat}
-    (checked : checkLabelClosedAt states run source = true)
+def checkLabelClosed (states : Array State) (run : ComponentRun) : Bool :=
+  let index := shapeCandidateIndex states
+  (List.range states.size).all
+    (checkLabelClosedAtWithIndex states index run)
+
+theorem checkLabelClosedAtWithIndex_sound
+    {states : Array State} {index : Std.HashMap String Nat}
+    {run : ComponentRun} {source : Nat}
+    (checked : checkLabelClosedAtWithIndex states index run source = true)
     {piece : Piece} {direction : Direction} {next : State}
     (executed :
       tryMove (states.getD source classic) piece direction = some next) :
@@ -351,25 +380,38 @@ theorem checkLabelClosedAt_sound
       (piece, direction, next) ∈
         legalMoves (states.getD source classic) :=
     legalMoves_complete executed
-  unfold checkLabelClosedAt at checked
+  unfold checkLabelClosedAtWithIndex at checked
   rw [List.all_eq_true] at checked
   have moveChecked := checked (piece, direction, next) moveMember
-  let graph := representationGraph states
   change
-    (match graph.findRepresentation next with
+    (match canonicalRepresentation states index next with
       | none => false
-      | some (target, _) =>
+      | some target =>
           run.componentOf.getD target run.roots.size ==
             run.componentOf.getD source run.roots.size) = true at moveChecked
-  cases represented : graph.findRepresentation next with
+  cases represented : canonicalRepresentation states index next with
   | none => simp [represented] at moveChecked
-  | some result =>
-      rcases result with ⟨target, relabeling⟩
-      have representationSound := Graph.findRepresentation_sound represented
-      refine ⟨target, representationSound.1, ?_, ?_⟩
-      · rw [representationSound.2]
-        exact relabel_sameShape relabeling _
-      · simpa [represented] using moveChecked
+  | some target =>
+      have representationSound :=
+        canonicalRepresentation_sound represented
+      refine ⟨target, representationSound.1, representationSound.2, ?_⟩
+      simpa [represented] using moveChecked
+
+theorem checkLabelClosedAt_sound
+    {states : Array State} {run : ComponentRun} {source : Nat}
+    (checked : checkLabelClosedAt states run source = true)
+    {piece : Piece} {direction : Direction} {next : State}
+    (executed :
+      tryMove (states.getD source classic) piece direction = some next) :
+    ∃ target : Nat,
+      target < states.size ∧
+      SameShape next (states.getD target classic) ∧
+      run.componentOf.getD target run.roots.size =
+        run.componentOf.getD source run.roots.size := by
+  exact checkLabelClosedAtWithIndex_sound
+    (index := shapeCandidateIndex states)
+    (by simpa [checkLabelClosedAt] using checked)
+    executed
 
 theorem checkLabelClosed_sound
     {states : Array State} {run : ComponentRun}
@@ -383,10 +425,15 @@ theorem checkLabelClosed_sound
       SameShape next (states.getD target classic) ∧
       run.componentOf.getD target run.roots.size =
         run.componentOf.getD source run.roots.size := by
-  unfold checkLabelClosed at checked
+  let index := shapeCandidateIndex states
+  change
+    (List.range states.size).all
+      (checkLabelClosedAtWithIndex states index run) = true at checked
   rw [List.all_eq_true] at checked
-  exact checkLabelClosedAt_sound
-    (checked source (List.mem_range.mpr sourceLt)) executed
+  exact checkLabelClosedAtWithIndex_sound
+    (index := index)
+    (checked source (List.mem_range.mpr sourceLt))
+    executed
 
 /-- The two global mathematical facts, plus locally replayed DFS checks, that
 turn the mutable output into a semantic partition.  `complete` is supplied by
@@ -649,6 +696,44 @@ theorem continuousClass_card_eq_898_of_certificate
     @Fintype.card ContinuousClass
         (VerifiedShapePartition.continuousClassFintype certificate) = 898 :=
   certificate.fintypeCard_continuousClass_eq.trans componentCount
+
+/-- The component finite type induced by a lawful run.
+
+The component index in `toVerifiedShapePartition` is definitionally
+`Fin run.roots.size`, but it is hidden behind a structure projection.  Keeping
+the instance as an explicit definition avoids making typeclass search unfold a
+large proof object at every cardinality statement.
+-/
+noncomputable def componentFintypeOfLawful
+    (lawful : run.Lawful states) :
+    Fintype lawful.toVerifiedShapePartition.ComponentIndex := by
+  change Fintype (Fin run.roots.size)
+  exact inferInstance
+
+/-- The canonical finite type on `ContinuousClass` induced by a lawful run. -/
+noncomputable def continuousClassFintypeOfLawful
+    (lawful : run.Lawful states) : Fintype ContinuousClass :=
+  @VerifiedShapePartition.continuousClassFintype
+    lawful.toVerifiedShapePartition
+    (componentFintypeOfLawful lawful)
+
+/-- The cardinality bridge specialized to a checked component run. -/
+theorem continuousClass_card_eq_898_of_lawful
+    (lawful : run.Lawful states)
+    (componentCount : run.roots.size = 898) :
+    @Fintype.card ContinuousClass
+        (continuousClassFintypeOfLawful lawful) = 898 := by
+  apply @continuousClass_card_eq_898_of_certificate
+    lawful.toVerifiedShapePartition
+    (componentFintypeOfLawful lawful)
+  change @Fintype.card (Fin run.roots.size)
+      (componentFintypeOfLawful lawful) = 898
+  calc
+    @Fintype.card (Fin run.roots.size)
+        (componentFintypeOfLawful lawful) =
+      run.roots.size := by
+        exact Fintype.card_fin _
+    _ = 898 := componentCount
 
 end ComponentRun.Lawful
 

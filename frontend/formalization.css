@@ -8,3 +8,6 @@
 @media(max-width:620px){.major-theorem-list{grid-template-columns:1fr}.major-theorem-list>button:nth-child(odd){border-right:0}.major-theorem-detail{padding:15px}.major-theorem-heading{display:block}.major-theorem-heading>.evidence-badge{margin-top:9px}.major-theorem-detail footer{display:block}.major-theorem-detail footer .primary-action{margin-top:10px}.model-formalization-anchors{grid-template-columns:1fr}.model-anchor:nth-child(odd){border-right:0}.model-anchor:nth-last-child(2){border-bottom:1px solid var(--line)}}
 
 body.formalization-mode .state-space-picker,body.formalization-mode .metrics,body.formalization-mode .header-actions{display:none}body.formalization-mode .mode-switch{margin-left:auto}
+:root .compact-evidence-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:900px){:root .compact-evidence-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){:root .compact-evidence-grid{grid-template-columns:1fr}}

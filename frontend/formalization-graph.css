@@ -61,7 +61,7 @@
 .theorem-dependency-map {
   position: relative;
   width: 1080px;
-  height: 680px;
+  height: 800px;
   background-color: var(--surface);
   background-image:
     linear-gradient(color-mix(in srgb, var(--line) 36%, transparent) 1px, transparent 1px),
@@ -73,7 +73,7 @@
   position: absolute;
   inset: 0;
   width: 1080px;
-  height: 680px;
+  height: 800px;
   pointer-events: none;
   overflow: visible;
 }
@@ -193,13 +193,15 @@
 }
 
 .theorem-graph-node strong {
-  display: block;
+  display: -webkit-box;
+  height: 24px;
   margin-top: 7px;
   font-size: 10px;
   line-height: 1.2;
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .theorem-graph-node code {
