@@ -186,13 +186,18 @@ i.rotation { background: var(--violet); }
 .component-kind.vertical-classic { color: #9a621a; border-color: color-mix(in srgb, var(--amber) 60%, var(--line)); }
 
 .component-board-section {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 10px;
   margin: 14px 0 10px;
-  padding: 8px;
+  padding: 10px;
   border: 1px solid var(--line);
   background: rgba(247, 246, 241, 0.48);
 }
 .component-board-section[hidden] { display: none; }
 .component-board-section > header {
+  grid-column: 1 / -1;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -210,13 +215,13 @@ i.rotation { background: var(--violet); }
   font: 8px ui-monospace, Consolas, monospace;
 }
 .component-board-section > p {
-  margin: 5px 0 0;
+  margin: 0;
   color: var(--muted);
-  font-size: 8px;
-  line-height: 1.35;
+  font-size: 9px;
+  line-height: 1.55;
 }
 .representative-board {
-  width: 100%;
+  width: 132px;
   aspect-ratio: 4 / 5;
   position: relative;
   margin: 0 auto;
@@ -253,6 +258,10 @@ i.rotation { background: var(--violet); }
 .representative-evidence.separated {
   border-left-color: var(--amber);
   background: rgba(211, 138, 44, 0.09);
+}
+.representative-evidence.ordinary-evidence {
+  border-left-color: var(--blue);
+  background: rgba(61, 103, 132, 0.08);
 }
 .representative-evidence strong { color: var(--ink); }
 
@@ -380,7 +389,8 @@ i.rotation { background: var(--violet); }
     display: block;
     padding: 10px;
   }
-  .representative-board { width: 100%; margin: 0; grid-column: auto; grid-row: auto; }
+  .component-board-section { grid-template-columns: 112px minmax(0, 1fr); }
+  .representative-board { width: 112px; margin: 0; }
   .component-stats { margin-top: 10px; }
   .component-stats div { padding: 6px; }
   .component-stats dd { font-size: 11px; }
@@ -393,5 +403,6 @@ i.rotation { background: var(--violet); }
 @media (max-height: 650px) and (min-width: 761px) {
   .space-summary p, .summary-grid { display: none; }
   .component-panel { max-height: calc(100% - 54px); }
-  .representative-board { width: 120px; margin: 10px auto; }
+  .component-board-section { grid-template-columns: 110px minmax(0, 1fr); }
+  .representative-board { width: 110px; margin: 0; }
 }

@@ -300,12 +300,10 @@ function renderComponentBoard(component) {
     id.textContent = `#${verticalId}`;
     note.textContent = '上下翻转给出离散图自同构对应的分量；翻转本身不是一次合法滑动。';
   } else {
-    section.hidden = true;
-    board.replaceChildren();
-    evidence.className = 'representative-evidence ordinary-evidence';
-    evidence.innerHTML =
-      '<strong>当前分量不指定游戏初始状态。</strong> 这里仅展示分量规模、合法滑动边和离散对称映射；确定性代表元只在载入实验室时使用。';
-    return;
+    displayComponent = component;
+    title.textContent = '非传统分量代表初态';
+    id.textContent = `#${component.id}`;
+    note.textContent = '构造枚举中确定选出的合法布局。载入关卡实验室时，它会作为该分量的初始状态。';
   }
 
   section.hidden = false;
@@ -325,6 +323,10 @@ function renderComponentBoard(component) {
     evidence.innerHTML =
       '<strong>这是经典初态的上下镜像分量。</strong> 上下翻转保持图结构和状态数，但它是离散图自同构，不是连续合法滑动；传统初态在类 #' +
       classicId + '，当前代表元在类 #' + verticalId + '。';
+  } else {
+    evidence.className = 'representative-evidence ordinary-evidence';
+    evidence.innerHTML =
+      '<strong>这里显示该分量的确定性代表初态。</strong> 它来自全空间构造枚举，并与“接入当前任务”使用的布局一致；它代表当前连续分量，不表示传统横刀立马，也不声称可由经典初态滑动到达。';
   }
 }
 
