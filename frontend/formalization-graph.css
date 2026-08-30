@@ -48,15 +48,14 @@
 
 .theorem-dependency-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 270px;
-  min-height: 680px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .theorem-dependency-viewport {
   min-width: 0;
   overflow: auto;
   background: var(--surface);
-  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
 .theorem-dependency-map {
@@ -214,11 +213,15 @@
 }
 
 .theorem-dependency-detail {
-  padding: 18px 16px;
+  display: grid;
+  grid-template-columns: minmax(280px, 1.25fr) minmax(210px, .9fr) minmax(210px, .9fr) 190px;
+  gap: 16px;
+  align-items: start;
+  padding: 16px;
   background: var(--panel);
 }
 
-.theorem-dependency-detail h3 {
+.theorem-dependency-summary h3 {
   margin: 6px 0 7px;
   font: 700 17px/1.25 serif;
 }
@@ -230,21 +233,21 @@
   overflow-wrap: anywhere;
 }
 
-.theorem-dependency-detail > .evidence-badge {
+.theorem-dependency-summary > .evidence-badge {
   margin-bottom: 7px;
 }
 
-.theorem-dependency-detail > p {
-  margin: 13px 0 17px;
+.theorem-dependency-summary > p {
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 10px;
   line-height: 1.65;
 }
 
 .dependency-detail-block {
-  padding-top: 12px;
-  margin-top: 12px;
-  border-top: 1px solid var(--line);
+  min-width: 0;
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
 }
 
 .dependency-detail-block > b {
@@ -294,9 +297,10 @@
 }
 
 .theorem-graph-source {
+  align-self: end;
   display: block;
   width: 100%;
-  margin-top: 20px;
+  margin: 0;
 }
 
 .theorem-dependency-note {
@@ -344,18 +348,19 @@
   }
 
   .theorem-dependency-detail {
-    display: grid;
     grid-template-columns: 1fr 1fr;
     column-gap: 15px;
   }
 
-  .theorem-dependency-detail > .section-kicker,
-  .theorem-dependency-detail > h3,
-  .theorem-dependency-detail > .evidence-badge,
-  .theorem-dependency-detail > .theorem-dependency-id,
-  .theorem-dependency-detail > p,
+  .theorem-dependency-summary,
   .theorem-graph-source {
     grid-column: 1 / -1;
+  }
+
+  .dependency-detail-block {
+    padding: 12px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .theorem-dependency-note {
@@ -383,7 +388,7 @@
     display: block;
   }
 
-  .theorem-dependency-detail h3 {
+  .theorem-dependency-summary h3 {
     font-size: 16px;
   }
 

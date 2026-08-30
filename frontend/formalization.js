@@ -26,10 +26,21 @@ let selectedStage = 'model';
 let selectedTheorem = 'classic116Play_minimal';
 let evidenceFilter = 'all';
 let sourceCache = new Map();
+let sourceExpanded = false;
+
+const majorTheoremIds = [
+  'classic116Play_minimal',
+  'classic_solution_uses_guanYu_yield',
+  'continuousClass_card_eq_898',
+  'classic_shortest_path_not_unique',
+  'concreteWalk_projectsToMirror',
+  'classic_solutionGate_guanYuClearsCaoSweep'
+];
 
 function setMode(mode) {
   const formal = mode === 'formalization';
   const lab = mode === 'lab';
+  document.body.classList.toggle('formalization-mode', formal);
   root.hidden = !formal;
   document.getElementById('classic-workspace').hidden = formal || lab;
   document.getElementById('laboratory').hidden = formal || !lab;
@@ -187,11 +198,13 @@ function theoremDependencyGraph() {
         </div>
       </div>
       <aside class="theorem-dependency-detail">
-        <span class="section-kicker">SELECTED THEOREM</span>
-        <h3>${escapeHtml(selected.title)}</h3>
-        ${evidenceBadge(selected.evidence)}
-        <code class="theorem-dependency-id">${selected.id}</code>
-        <p>${selected.plain}</p>
+        <div class="theorem-dependency-summary">
+          <span class="section-kicker">SELECTED THEOREM</span>
+          <h3>${escapeHtml(selected.title)}</h3>
+          ${evidenceBadge(selected.evidence)}
+          <code class="theorem-dependency-id">${selected.id}</code>
+          <p>${selected.plain}</p>
+        </div>
         <div class="dependency-detail-block"><b>它依赖</b><div class="dependency-link-list">${dependencyList(incoming, 'in')}</div></div>
         <div class="dependency-detail-block"><b>它支撑</b><div class="dependency-link-list">${dependencyList(outgoing, 'out')}</div></div>
         <button class="primary-action theorem-graph-source" data-open-source="${selected.id}">打开源码与 statement <span>→</span></button>
@@ -317,6 +330,55 @@ function theoremDetail(record) {
   </article>`;
 }
 
+function majorTheoremsSection() {
+  const record = theoremById(selectedTheorem);
+  const majorRecords = majorTheoremIds.map(theoremById);
+  return `<section class="formal-section major-theorems-section" data-formal-section="theorems">
+    <header class="formal-section-heading">
+      <div><span class="section-kicker">MAJOR RESULTS</span><h2>重点定理</h2><p class="section-subtitle">选择一条结论，查看正式陈述、主要依赖和证据类型。</p></div>
+    </header>
+    <div class="major-theorems-layout">
+      <aside class="major-theorem-list">${majorRecords.map(recordItem => `<button class="${recordItem.id === selectedTheorem ? 'active' : ''}" data-major-theorem="${recordItem.id}">
+        <span>${evidenceBadge(recordItem.evidence)}</span><b>${recordItem.title}</b><code>${recordItem.id}</code>
+      </button>`).join('')}</aside>
+      <article class="major-theorem-detail">
+        <div class="major-theorem-heading"><div><span class="section-kicker">${record.category}</span><h3>${record.title}</h3></div>${evidenceBadge(record.evidence)}</div>
+        <code class="major-theorem-statement">${escapeHtml(record.statement)}</code>
+        <p>${record.plain}</p>
+        <div class="major-theorem-chain"><b>主要依赖</b><span>${record.chain.map(item => `<code>${item}</code>`).join('<i>→</i>')}</span></div>
+        <footer><span>${record.file}</span><button class="primary-action" data-open-source="${record.id}">查看 Lean 源码 <span>→</span></button></footer>
+      </article>
+    </div>
+  </section>`;
+}
+
+function evidenceBoundarySection() {
+  return `<section class="formal-section compact-evidence-section" data-formal-section="evidence">
+    <header class="formal-section-heading"><div><span class="section-kicker">EVIDENCE BOUNDARY</span><h2>结论的证据边界</h2></div></header>
+    <div class="compact-evidence-grid">
+      <div><i class="boundary-icon kernel">K</i><b>内核定理</b><p>定义、归纳证明、等价和最短性由 Lean kernel 检查。</p></div>
+      <div><i class="boundary-icon checked">C</i><b>有限证书</b><p>checker 或 <code>native_decide</code> 先验证数据，再由 soundness 定理解释。</p></div>
+      <div><i class="boundary-icon conditional">?</i><b>条件接口</b><p><code>continuousClass_card_eq_898</code> 仍保留 <code>Lawful</code> 前提，898 尚未作为无条件定理编译闭合。</p></div>
+    </div>
+  </section>`;
+}
+
+function compactSourceSection() {
+  if (!sourceExpanded) return '';
+  const record = theoremById(selectedTheorem);
+  return `<section class="formal-section compact-source-section" data-formal-section="source">
+    <header class="formal-section-heading">
+      <div><span class="section-kicker">LEAN SOURCE</span><h2>${record.title}</h2><p class="section-subtitle">${record.file}</p></div>
+      <button class="text-action" data-close-source>收起源码</button>
+    </header>
+    <div class="source-explanation compact-source-explanation">
+      <div><b>定理说明</b><p>${record.plain}</p></div>
+      <div><b>正式陈述</b><span><code>${escapeHtml(record.statement)}</code></span></div>
+    </div>
+    <div id="formal-source-code" class="formal-source-code"><div class="source-loading"><i></i><span>正在读取 ${record.file}</span></div></div>
+  </section>`;
+}
+
 function theoremView() {
   const filtered = evidenceFilter === 'all' ? theoremRecords : theoremRecords.filter(record => record.evidence === evidenceFilter);
   const record = theoremById(selectedTheorem);
@@ -389,17 +451,17 @@ function dashboardView() {
     <section class="formal-summary-banner" data-formal-section="overview">
       <div class="summary-seal">∴</div>
       <div><span class="section-kicker">PROJECT SUMMARY</span>
-        <h2>先看结论，再看证明怎样接起来</h2>
-        <p><code>classic116Play_minimal</code> 已经闭合了经典华容道 116 步的全局最短性。下面把模型、定理依赖、有限证书、源码和 Lean 内核对象放在同一页；最短性是一个结论，不是项目的终点。</p>
+        <h2>当前形式化结果</h2>
+        <p><code>classic116Play_minimal</code> 已闭合经典华容道 116 步的全局最短性。项目还证明了关羽让路的必然性，并继续研究商空间、全空间分量和最短解之间的结构。898 个连续分量目前是带 <code>Lawful</code> 前提的条件结论。</p>
       </div>
-      <span class="summary-status">主定理已闭合 · 898 接口保留前提</span>
+      <span class="summary-status">主定理已闭合 · 898 保留前提</span>
     </section>
     ${modelFormalizationSection()}
     ${researchContinuationSection()}
-    ${withoutMetrics(chainView())}
-    ${withoutMetrics(theoremView())}
-    ${withoutMetrics(sourceView())}
-    ${withoutMetrics(kernelView())}`;
+    ${theoremDependencyGraph()}
+    ${majorTheoremsSection()}
+    ${evidenceBoundarySection()}
+    ${compactSourceSection()}`;
 }
 
 function renderFormalization() {
@@ -411,9 +473,18 @@ function renderFormalization() {
 
 function navigateFormalSection(view) {
   currentView = view;
+  if (view === 'source') sourceExpanded = true;
   renderFormalization();
   requestAnimationFrame(() => {
-    const target = view === 'chain' ? 'proof-chain' : view;
+    const targets = {
+      overview: 'overview',
+      model: 'model-rules',
+      chain: 'dependency-graph',
+      theorems: 'theorems',
+      source: 'source',
+      kernel: 'evidence'
+    };
+    const target = targets[view] || 'overview';
     document.querySelector(`[data-formal-section="${target}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
@@ -440,6 +511,11 @@ function bindContentEvents() {
   content.querySelectorAll('[data-graph-theorem]').forEach(node => node.addEventListener('click', () => {
     selectTheorem(node.dataset.graphTheorem);
   }));
+  content.querySelectorAll('[data-major-theorem]').forEach(node => node.addEventListener('click', () => {
+    selectedTheorem = node.dataset.majorTheorem;
+    renderFormalization();
+    requestAnimationFrame(() => document.querySelector('[data-formal-section="theorems"]')?.scrollIntoView({ block: 'start' }));
+  }));
   content.querySelectorAll('[data-formal-view]').forEach(node => node.addEventListener('click', () => {
     navigateFormalSection(node.dataset.formalView);
   }));
@@ -451,6 +527,12 @@ function bindContentEvents() {
     const id = node.dataset.openSource;
     if (id && theoremRecords.some(record => record.id === id)) selectedTheorem = id;
     navigateFormalSection('source');
+  }));
+  content.querySelectorAll('[data-close-source]').forEach(node => node.addEventListener('click', () => {
+    sourceExpanded = false;
+    currentView = 'theorems';
+    renderFormalization();
+    requestAnimationFrame(() => document.querySelector('[data-formal-section="theorems"]')?.scrollIntoView({ block: 'start' }));
   }));
   content.querySelectorAll('[data-source-file]').forEach(node => node.addEventListener('click', () => {
     const file = sourceFiles.find(item => item.path === node.dataset.sourceFile);
@@ -523,11 +605,13 @@ document.getElementById('formal-copy-link').addEventListener('click', async () =
 
 const requestedMode = new URLSearchParams(location.search).get('mode');
 const requestedView = new URLSearchParams(location.search).get('view');
-if (['overview', 'chain', 'theorems', 'source', 'kernel'].includes(requestedView)) currentView = requestedView;
+if (['overview', 'model', 'chain', 'theorems', 'source', 'kernel'].includes(requestedView)) currentView = requestedView;
 if (requestedMode === 'formalization') {
+  if (requestedView === 'source') sourceExpanded = true;
   setMode('formalization');
   if (requestedView) requestAnimationFrame(() => {
-    const target = requestedView === 'chain' ? 'proof-chain' : requestedView;
+    const targets = { overview: 'overview', model: 'model-rules', chain: 'dependency-graph', theorems: 'theorems', source: 'source', kernel: 'evidence' };
+    const target = targets[requestedView] || 'overview';
     document.querySelector(`[data-formal-section="${target}"]`)?.scrollIntoView({ block: 'start' });
   });
 }
