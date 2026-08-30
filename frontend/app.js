@@ -456,6 +456,7 @@ function concreteCaoStep(edge) {
 }
 function renderCaoMiniBoard(container, state, label) {
   if (!container || !state) return;
+  const targetLabel = label || ('代表元 #' + state.id);
   container.replaceChildren();
   state.positions.forEach(([x, y], index) => {
     const spec = pieces[index];
@@ -465,11 +466,15 @@ function renderCaoMiniBoard(container, state, label) {
       left: x * 25 + '%', top: y * 20 + '%', width: spec.w * 25 + '%', height: spec.h * 20 + '%'
     });
     const button = document.createElement('button');
-    button.type = 'button'; button.disabled = true; button.textContent = spec.label;
+    // The piece image is the visible representative control. Keep the click
+    // on the piece itself so disabled buttons do not swallow the board click.
+    button.type = 'button'; button.textContent = spec.label; button.title = '从横刀立马初始状态播放到' + targetLabel;
+    button.setAttribute('aria-label', targetLabel + '，点击在主棋盘中播放');
+    button.onclick = event => { event.stopPropagation(); animateToCaoState(state.id, targetLabel); };
     wrap.append(button); container.append(wrap);
   });
-  container.title = label || ('代表元 #' + state.id);
-  container.onclick = () => animateToCaoState(state.id, label || ('代表元 #' + state.id));
+  container.title = targetLabel + '，点击棋盘或棋子图片播放到此状态';
+  container.onclick = () => animateToCaoState(state.id, targetLabel);
 }
 function setCaoPanelCollapsed(collapsed) {
   caoPanelCollapsed = Boolean(collapsed);
